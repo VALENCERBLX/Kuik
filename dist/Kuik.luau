@@ -1,235 +1,105 @@
 --!nonstrict
---[[
-	Kuik 1.0 — a Roblox UI library in the hairline-rule style.
-
-	The style: there is no panel. A window is two 1px vertical rules with
-	nothing between them, floating over the game. No fill, no border, no
-	corner radius, no accent colour. Hierarchy is carried entirely by
-	typography and negative space; the only bright objects on screen are the
-	controls themselves.
-
-	Colour is reserved for meaning — red is a warning, amber is a log level,
-	blue is a role. It is never decoration.
-
-	Single-file ModuleScript. Put it in ReplicatedStorage, require from a
-	LocalScript.
-
-		local Kuik = require(game.ReplicatedStorage.Kuik)
-
-		local Window = Kuik.Window({
-			Title    = "Settings",
-			Subtitle = "Manage your preferences",
-			Key      = Enum.KeyCode.Tab,
-		})
-
-		local Categories = Window:Section("Categories", "Choose a category to configure.")
-		local Tabs       = Categories:Tabs()
-		local Visual     = Tabs:Page("Visual")
-
-		Visual:Toggle({
-			Label       = "Show UI/UX",
-			Description = "Show and configure interface elements.",
-			Default     = true,
-			Callback    = function(On) print(On) end,
-		})
-
-	Everything in Theme is live — assign to it before constructing and the
-	whole library follows.
-]]
-
-
---============================================================================
--- Services
---============================================================================
-
+-- Kuik 1.0.0 — built from init.luau by tools/build.py.
+-- Comments are stripped so the source fits Roblox's 200,000 character
+-- limit for a ModuleScript Source assignment. Read init.luau instead.
 local TweenService     = game:GetService("TweenService")
 local UserInputService  = game:GetService("UserInputService")
 local RunService        = game:GetService("RunService")
 local Lighting          = game:GetService("Lighting")
 local Players           = game:GetService("Players")
-
 local LocalPlayer = Players.LocalPlayer
-
-
---============================================================================
--- Version
---============================================================================
-
 local VERSION = {
 	Name    = "Kuik",
 	Version = "1.0.0",
 }
-
-
---============================================================================
--- Theme
---
--- Transparency values rather than colours for anything dim: the library is
--- designed to sit over arbitrary game footage, so everything reads as a
--- fraction of white rather than a fixed grey.
---============================================================================
-
 local Theme = {
-	--- Montserrat is the closest match to the reference. Swap for
-	--- Font.fromEnum(Enum.Font.Gotham) if you want a built-in.
 	Font       = Font.fromName("Montserrat", Enum.FontWeight.Regular),
 	FontMedium = Font.fromName("Montserrat", Enum.FontWeight.Medium),
 	FontBold   = Font.fromName("Montserrat", Enum.FontWeight.SemiBold),
 	FontMono   = Font.fromEnum(Enum.Font.Code),
-
 	White = Color3.fromRGB(255, 255, 255),
 	Black = Color3.fromRGB(20, 20, 20),
-
-	--- The backdrop darkens rather than lightens. Everything the library
-	--- draws is white, so a light wash erases the interface over a bright
-	--- scene — which is exactly what happened over a blue sky.
 	Scrim = Color3.fromRGB(8, 8, 10),
-
-	--- Text is always white; only its transparency changes.
 	TextPrimary   = 0.00,
 	TextSecondary = 0.42,
 	TextTertiary  = 0.58,
 	TextDisabled  = 0.72,
-
 	RuleTransparency = 0.45,
-
 	RowTransparency      = 0.94,
 	RowHoverTransparency = 0.88,
-
 	ChipTransparency = 0.45,
-
-	--- Semantic. Never used for decoration.
 	Danger  = Color3.fromRGB(255, 72, 72),
 	Warn    = Color3.fromRGB(255, 176, 46),
 	Info    = Color3.fromRGB(96, 156, 255),
 	Good    = Color3.fromRGB(96, 210, 128),
 	Neutral = Color3.fromRGB(255, 255, 255),
-
-	--- Motion, lifted from Lume's token file — same role names, same
-	--- durations, same easings — so anything built with both moves
-	--- identically. Pass a role name to Tween, or a literal spec table.
 	Motion = {
 		instant = { Duration = 0 },
-
-		--- window open / close
 		enter  = { Duration = 0.46, Easing = "outQuint" },
 		exit   = { Duration = 0.38, Easing = "outQuad" },
-
-		--- the tab pill sliding, a section unfolding
 		expand = { Duration = 0.34, Easing = "outQuint" },
-
-		--- pointer feedback
 		hover  = { Duration = 0.12, Easing = "outQuad" },
 		press  = { Duration = 0.07, Easing = "outQuad" },
-
-		--- text and opacity
 		fade   = { Duration = 0.34, Easing = "outQuad" },
 		hint   = { Duration = 0.22, Easing = "outQuad" },
-
-		--- a control's own value changing
 		item   = { Duration = 0.30, Easing = "outQuad" },
 		list   = { Duration = 0.28, Easing = "outQuad" },
-
-		--- the notify card's drop, which overshoots on purpose
 		drop   = { Duration = 0.46, Easing = "outBack" },
-
-		--- Springs. Anything whose target can change mid-flight belongs here:
-		--- retargeting keeps the current position *and velocity*, so the
-		--- motion bends toward the new destination instead of restarting.
-		--- Damping is the coefficient, not the ratio — critical for a given
-		--- stiffness is 2 * sqrt(stiffness).
 		layout = { Stiffness = 190, Damping = 24 },
 		morph  = { Stiffness = 210, Damping = 26 },
-
-		--- follows a pointer without wobbling under it
 		drag   = { Stiffness = 620, Damping = 42 },
-
-		--- the settle after release. Deliberately under critical (2*sqrt(340)
-		--- is about 37) so it overshoots a little and comes back — that small
-		--- bounce is what reads as weight.
 		toss   = { Stiffness = 340, Damping = 22 },
-
 		reveal = { Stiffness = 150, Damping = 20 },
 		snap   = { Stiffness = 600, Damping = 40 },
-
-		--- Wheel scrolling, taken over from the engine so it glides.
-		--- Deliberately *over* critical (2*sqrt(300) is about 34.6): a scroll
-		--- that bounces past where you aimed it feels broken, not lively.
 		scroll = { Stiffness = 300, Damping = 38 },
 	},
 }
-
 local Metrics = {
 	WindowWidth   = 460,
 	WindowHeight  = 500,
 	WindowPadding = 26,
-
 	TitleSize    = 27,
 	SubtitleSize = 14,
-
 	SectionTitleSize = 18,
 	SectionDescSize  = 12,
-
 	RowLabelSize = 16,
 	RowDescSize  = 11,
 	RowHeight    = 46,
 	RowHeightTall = 62,
 	RowGap       = 8,
-
-	--- PillRadius caps the fully-round elements, so dropping it to 0 squares
-	--- every toggle and tab in one line.
 	RowRadius    = 4,
 	CardRadius   = 8,
 	PillRadius   = 999,
-
 	TabHeight  = 30,
 	TabPadding = 14,
 	TabGap     = 6,
 	TabIcon    = 14,
-
 	ToggleWidth  = 50,
 	ToggleHeight = 25,
 	KnobInset    = 3,
-
 	SliderTrack = 3,
 	SliderThumbWidth  = 4,
 	SliderThumbHeight = 15,
-
 	ChipWidth  = 52,
 	ChipHeight = 23,
 	ChipRadius = 5,
-
 	MonoSize = 10,
 }
-
-
---============================================================================
--- Utilities
---============================================================================
-
 local function New(ClassName, Properties, Children)
 	local Object = Instance.new(ClassName)
-
 	for Key, Value in Properties or {} do
 		if Key ~= "Parent" then
 			Object[Key] = Value
 		end
 	end
-
 	for _, Child in Children or {} do
 		Child.Parent = Object
 	end
-
 	if Properties and Properties.Parent then
 		Object.Parent = Properties.Parent
 	end
-
 	return Object
 end
-
---- Easing names read <direction><Style> — "outQuint", "inOutQuad", "inBack" —
---- with "linear" as the one special case. Same grammar as Lume's Easing
---- module, so a spec can be moved between the two libraries unchanged.
 local EASING_STYLES = {
 	linear = Enum.EasingStyle.Linear,
 	sine = Enum.EasingStyle.Sine,
@@ -245,26 +115,20 @@ local EASING_STYLES = {
 	elastic = Enum.EasingStyle.Elastic,
 	bounce = Enum.EasingStyle.Bounce,
 }
-
 local EASING_DIRECTIONS = {
 	["in"] = Enum.EasingDirection.In,
 	out = Enum.EasingDirection.Out,
 	inout = Enum.EasingDirection.InOut,
 }
-
 local function ResolveEasing(Name)
 	if not Name or Name == "" then
 		return Enum.EasingStyle.Quad, Enum.EasingDirection.Out
 	end
-
 	local Lowered = string.lower(Name)
-
 	if Lowered == "linear" then
 		return Enum.EasingStyle.Linear, Enum.EasingDirection.Out
 	end
-
 	local Direction, Style = "out", Lowered
-
 	if string.sub(Lowered, 1, 5) == "inout" then
 		Direction, Style = "inout", string.sub(Lowered, 6)
 	elseif string.sub(Lowered, 1, 3) == "out" then
@@ -272,28 +136,15 @@ local function ResolveEasing(Name)
 	elseif string.sub(Lowered, 1, 2) == "in" then
 		Direction, Style = "in", string.sub(Lowered, 3)
 	end
-
 	return EASING_STYLES[Style] or Enum.EasingStyle.Quad,
 		EASING_DIRECTIONS[Direction] or Enum.EasingDirection.Out
 end
-
---============================================================================
--- Springs
---
--- A scalar damped-harmonic-oscillator solver, stepped analytically so the
--- result is identical at 30fps and 240fps. Ported from Lume's Motion/Spring,
--- including its epsilons and its frame-time cap.
---============================================================================
-
 local EPSILON_POSITION = 0.0005
 local EPSILON_VELOCITY = 0.0005
-
 local SpringClass = {}
 SpringClass.__index = SpringClass
-
 local function NewSpring(Position, Stiffness, Damping)
 	local Frequency = math.sqrt(math.max(Stiffness, 0.0001))
-
 	return setmetatable({
 		Position  = Position,
 		Velocity  = 0,
@@ -302,85 +153,58 @@ local function NewSpring(Position, Stiffness, Damping)
 		Ratio     = Damping / (2 * Frequency),
 	}, SpringClass)
 end
-
 function SpringClass:Retune(Stiffness, Damping)
 	local Frequency = math.sqrt(math.max(Stiffness, 0.0001))
-
 	self.Frequency = Frequency
 	self.Ratio = Damping / (2 * Frequency)
 end
-
 function SpringClass:Step(Delta)
 	if Delta <= 0 then
 		return self.Position
 	end
-
-	--- A long frame — a streaming hitch, a tab restore — integrated in one go
-	--- reads as a teleport. Cap it so the motion stays continuous.
 	local Step = math.min(Delta, 1 / 20)
-
 	local Offset = self.Position - self.Target
 	local Velocity = self.Velocity
 	local Frequency = self.Frequency
 	local Ratio = self.Ratio
-
 	local Position, NextVelocity
-
 	if Ratio < 1 then
-		--- Underdamped: oscillates in.
 		local Damped = Frequency * math.sqrt(1 - Ratio * Ratio)
 		local Decay = math.exp(-Ratio * Frequency * Step)
-
 		local Cosine = math.cos(Damped * Step)
 		local Sine = math.sin(Damped * Step)
-
 		local First = Offset
 		local Second = (Velocity + Ratio * Frequency * Offset) / Damped
-
 		Position = Decay * (First * Cosine + Second * Sine)
 		NextVelocity = Decay * (
 			-Ratio * Frequency * (First * Cosine + Second * Sine)
 			+ Damped * (Second * Cosine - First * Sine)
 		)
 	elseif Ratio == 1 then
-		--- Critically damped: the fastest approach with no overshoot.
 		local Decay = math.exp(-Frequency * Step)
-
 		local First = Offset
 		local Second = Velocity + Frequency * Offset
-
 		Position = (First + Second * Step) * Decay
 		NextVelocity = Decay * (Second - Frequency * (First + Second * Step))
 	else
-		--- Overdamped: two real roots, no oscillation.
 		local Root = Frequency * math.sqrt(Ratio * Ratio - 1)
-
 		local Slow = -Frequency * Ratio + Root
 		local Fast = -Frequency * Ratio - Root
-
 		local Second = (Velocity - Slow * Offset) / (Fast - Slow)
 		local First = Offset - Second
-
 		local SlowDecay = math.exp(Slow * Step)
 		local FastDecay = math.exp(Fast * Step)
-
 		Position = First * SlowDecay + Second * FastDecay
 		NextVelocity = First * Slow * SlowDecay + Second * Fast * FastDecay
 	end
-
 	self.Position = Position + self.Target
 	self.Velocity = NextVelocity
-
 	return self.Position
 end
-
 function SpringClass:Settled()
 	return math.abs(self.Position - self.Target) < EPSILON_POSITION
 		and math.abs(self.Velocity) < EPSILON_VELOCITY
 end
-
---- Springs are scalar, so every animatable datatype is taken apart into
---- numbers and rebuilt each frame.
 local Parts = {
 	number = {
 		Split = function(Value) return { Value } end,
@@ -411,34 +235,25 @@ local Parts = {
 		end,
 	},
 }
-
---- One heartbeat drives every live spring, and disconnects itself when
---- nothing is moving.
 local Live = {}
 local Driver = nil
-
 local function StepAll(Delta)
 	local Moving = false
-
 	for Object, Channels in Live do
 		if not Object.Parent then
 			Live[Object] = nil
 			continue
 		end
-
 		for Property, Channel in Channels do
 			local Settled = true
 			local Values = table.create(#Channel.Springs)
-
 			for Index, Each in Channel.Springs do
 				Each:Step(Delta)
 				Values[Index] = Each.Position
-
 				if not Each:Settled() then
 					Settled = false
 				end
 			end
-
 			if Settled then
 				Object[Property] = Channel.Goal
 				Channels[Property] = nil
@@ -447,52 +262,40 @@ local function StepAll(Delta)
 				Moving = true
 			end
 		end
-
 		if next(Channels) == nil then
 			Live[Object] = nil
 		end
 	end
-
 	if not Moving and next(Live) == nil and Driver then
 		Driver:Disconnect()
 		Driver = nil
 	end
 end
-
 local function SpringTo(Object, Properties, Stiffness, Damping)
 	local Channels = Live[Object]
-
 	if not Channels then
 		Channels = {}
 		Live[Object] = Channels
 	end
-
 	for Property, Goal in Properties do
 		local Kind = Parts[typeof(Goal)]
-
 		if Kind then
 			local Wanted = Kind.Split(Goal)
 			local Channel = Channels[Property]
-
 			if Channel and #Channel.Springs == #Wanted and Channel.Type == typeof(Goal) then
-				--- Retarget in flight: position and velocity are kept, which is
-				--- the entire point of the spring path.
 				for Index, Each in Channel.Springs do
 					Each:Retune(Stiffness, Damping)
 					Each.Target = Wanted[Index]
 				end
-
 				Channel.Goal = Goal
 			else
 				local Current = Kind.Split(Object[Property])
 				local Springs = table.create(#Wanted)
-
 				for Index, Value in Wanted do
 					local Each = NewSpring(Current[Index] or Value, Stiffness, Damping)
 					Each.Target = Value
 					Springs[Index] = Each
 				end
-
 				Channels[Property] = {
 					Springs = Springs,
 					Kind    = Kind,
@@ -501,106 +304,69 @@ local function SpringTo(Object, Properties, Stiffness, Damping)
 				}
 			end
 		else
-			--- Not springable (an enum, a boolean); set it outright.
 			Object[Property] = Goal
 		end
 	end
-
 	if not Driver then
 		Driver = RunService.Heartbeat:Connect(StepAll)
 	end
 end
-
---- Role is a key into Theme.Motion ("enter", "hover", …) or a literal
---- { Duration = , Easing = } or { Stiffness = , Damping = } table.
---- Unknown roles fall back to "item".
 local function Spec(Role)
 	if type(Role) == "table" then
 		return Role
 	end
-
 	return Theme.Motion[Role or "item"] or Theme.Motion.item
 end
-
 local function MotionTime(Role)
 	local Using = Spec(Role)
-
 	if Using.Duration then
 		return Using.Duration
 	end
-
-	--- A rough settle time for a spring, for the few places that need to
-	--- schedule something after the motion rather than during it.
 	return 6 / math.sqrt(math.max(Using.Stiffness or 200, 0.0001))
 end
-
---- A stand-in for TweenBase.Completed on the spring path, so both kinds of
---- motion present the same handle.
 local function Finished()
 	local Handlers = {}
 	local Signal = {}
-
 	function Signal:Connect(Handler)
 		table.insert(Handlers, Handler)
 		return { Disconnect = function() end }
 	end
-
 	Signal.Once = Signal.Connect
-
 	function Signal:Fire()
 		for _, Handler in Handlers do
 			task.spawn(Handler)
 		end
 	end
-
 	return Signal
 end
-
 local function Tween(Object, Properties, Role)
 	local Using = Spec(Role)
-
 	if Using.Stiffness then
 		SpringTo(Object, Properties, Using.Stiffness, Using.Damping or 0)
-
-		--- Springs have no fixed duration. Settling is reported on a short
-		--- estimate rather than never, so callers waiting on Completed still
-		--- fire; nothing in the library depends on the exact moment.
 		local Signal = Finished()
-
 		task.delay(2 / math.sqrt(math.max(Using.Stiffness, 0.0001)) * 3, function()
 			Signal:Fire()
 		end)
-
 		return { Completed = Signal, Cancel = function() end }
 	end
-
 	local Style, Direction = ResolveEasing(Using.Easing)
-
 	local Handle = TweenService:Create(
 		Object,
 		TweenInfo.new(Using.Duration or 0, Style, Direction),
 		Properties
 	)
-
 	Handle:Play()
-
 	return Handle
 end
-
 local function Clamp(Value, Minimum, Maximum)
 	return math.max(Minimum, math.min(Maximum, Value))
 end
-
---- Rounds to the nearest multiple of Step, honouring Step = 0 as "no rounding".
 local function Quantise(Value, Step)
 	if not Step or Step <= 0 then
 		return Value
 	end
-
 	return math.floor(Value / Step + 0.5) * Step
 end
-
---- Trims trailing zeroes so 0.50 reads as "0.5" and 5.00 as "5".
 local function FormatNumber(Value, Step)
 	if Step and Step < 1 then
 		local Decimals = math.max(0, math.ceil(-math.log(Step, 10)))
@@ -608,14 +374,11 @@ local function FormatNumber(Value, Step)
 		Text = string.gsub(Text, "%.?0+$", "")
 		return Text == "" and "0" or Text
 	end
-
 	return tostring(math.floor(Value + 0.5))
 end
-
 local function Corner(Radius)
 	return New("UICorner", { CornerRadius = UDim.new(0, Radius) })
 end
-
 local function Padding(Top, Right, Bottom, Left)
 	return New("UIPadding", {
 		PaddingTop    = UDim.new(0, Top),
@@ -624,7 +387,6 @@ local function Padding(Top, Right, Bottom, Left)
 		PaddingLeft   = UDim.new(0, Left or Right or Top),
 	})
 end
-
 local function List(Gap, Direction, Alignment)
 	return New("UIListLayout", {
 		Padding              = UDim.new(0, Gap or 0),
@@ -633,51 +395,34 @@ local function List(Gap, Direction, Alignment)
 		HorizontalAlignment  = Alignment or Enum.HorizontalAlignment.Left,
 	})
 end
-
---- Fades a freshly built element in on the next frame. Everything the
---- library creates goes through this, so nothing ever pops into place.
 local function Enter(Object, Property, Target, Role)
 	local Original = Object[Property]
 	Object[Property] = 1
-
 	task.defer(function()
 		if Object.Parent then
 			Tween(Object, { [Property] = Target or Original }, Role or "fade")
 		end
 	end)
 end
-
---- Each label's settled transparency, remembered so a swap that lands
---- mid-fade restores the right value instead of reading back the 1 it is
---- currently animating through. Weak keys, so destroyed labels drop out.
 local RestingText = setmetatable({}, { __mode = "k" })
-
---- Swaps a label's text through a quick fade rather than snapping it.
 local function SwapText(Label, NewText)
 	if Label.Text == NewText then
 		return
 	end
-
 	local Rest = RestingText[Label]
-
 	if not Rest then
 		Rest = Label.TextTransparency
 		RestingText[Label] = Rest
 	end
-
 	Tween(Label, { TextTransparency = 1 }, "press")
-
 	task.delay(MotionTime("press"), function()
 		if not Label.Parent then
 			return
 		end
-
 		Label.Text = NewText
 		Tween(Label, { TextTransparency = Rest }, "hover")
 	end)
 end
-
---- The load-bearing element of the whole design.
 local function Rule(Parent, Anchor, LayoutOrder)
 	return New("Frame", {
 		Name                   = "Rule",
@@ -691,7 +436,6 @@ local function Rule(Parent, Anchor, LayoutOrder)
 		ZIndex                 = 2,
 	})
 end
-
 local function Text(Properties)
 	local Label = New("TextLabel", {
 		BackgroundTransparency = 1,
@@ -705,22 +449,16 @@ local function Text(Properties)
 		Size                   = UDim2.new(1, 0, 0, 0),
 		AutomaticSize          = Enum.AutomaticSize.Y,
 	})
-
 	for Key, Value in Properties or {} do
 		if Key ~= "Parent" then
 			Label[Key] = Value
 		end
 	end
-
 	if Properties and Properties.Parent then
 		Label.Parent = Properties.Parent
 	end
-
 	return Label
 end
-
---- Three stacked bars — the glyph that prefixes every chat and log line in
---- the reference. Drawn rather than imported so the library ships assetless.
 local function Glyph(Parent, Size, Alpha)
 	local Holder = New("Frame", {
 		Name                   = "Glyph",
@@ -728,9 +466,7 @@ local function Glyph(Parent, Size, Alpha)
 		BackgroundTransparency = 1,
 		Size                   = UDim2.new(0, Size, 0, Size),
 	})
-
 	local Widths = { 1.0, 0.7, 0.85 }
-
 	for Index, Fraction in Widths do
 		New("Frame", {
 			Name                   = "Bar" .. Index,
@@ -742,11 +478,8 @@ local function Glyph(Parent, Size, Alpha)
 			Size                   = UDim2.new(Fraction, 0, 0, 1),
 		})
 	end
-
 	return Holder
 end
-
---- A tiny keycap outline for keybind hints.
 local function Keycap(Parent, Size)
 	local Cap = New("Frame", {
 		Name                   = "Keycap",
@@ -761,7 +494,6 @@ local function Keycap(Parent, Size)
 			Thickness    = 1,
 		}),
 	})
-
 	for Index = 1, 2 do
 		New("Frame", {
 			Parent                 = Cap,
@@ -772,34 +504,15 @@ local function Keycap(Parent, Size)
 			Size                   = UDim2.new(0.56, 0, 0, 1),
 		})
 	end
-
 	return Cap
 end
-
---- Roblox scrolls a ScrollingFrame in hard jumps. This takes the wheel over
---- and springs CanvasPosition instead, which is the difference between a
---- panel that lurches and one that glides.
----
---- Only on desktop: touch drag is already smooth and momentum-driven, and
---- disabling ScrollingEnabled would break it.
---- A soft light at whichever edge has more content behind it. Sits over the
---- scroller rather than inside it, so it does not scroll away, and fades in
---- and out rather than blinking on at the first pixel of overflow.
 local function Gleam(Frame, Vertical, Depth)
 	local Parent = Frame.Parent
-
 	if not Parent then
 		return function() end
 	end
-
 	Depth = Depth or 22
-
 	local Base = 0.86
-
-	--- Two gradients at right angles. A UIGradient only fades along one axis,
-	--- so the cross-axis falloff goes on a CanvasGroup wrapping the strip —
-	--- the group's gradient fades what it has already rendered, which is how
-	--- the light softens at its ends instead of stopping dead.
 	local function Edge(Head)
 		local Group = New("CanvasGroup", {
 			Name                   = Head and "GleamHead" or "GleamTail",
@@ -820,7 +533,6 @@ local function Gleam(Frame, Vertical, Depth)
 				}),
 			}),
 		})
-
 		New("Frame", {
 			Name                   = "Light",
 			Parent                 = Group,
@@ -838,21 +550,14 @@ local function Gleam(Frame, Vertical, Depth)
 				}),
 			}),
 		})
-
 		return Group
 	end
-
 	local Head, Tail = Edge(true), Edge(false)
-
 	local function Layout()
-		--- Head and Tail share Frame's parent, so its own UDim2 can be reused
-		--- directly rather than converted through absolute space.
 		local Position, Size = Frame.Position, Frame.Size
-
 		if Vertical then
 			Head.Position = Position
 			Head.Size = UDim2.new(Size.X.Scale, Size.X.Offset, 0, Depth)
-
 			Tail.AnchorPoint = Vector2.new(0, 1)
 			Tail.Position = UDim2.new(
 				Position.X.Scale, Position.X.Offset,
@@ -861,7 +566,6 @@ local function Gleam(Frame, Vertical, Depth)
 		else
 			Head.Position = Position
 			Head.Size = UDim2.new(0, Depth, Size.Y.Scale, Size.Y.Offset)
-
 			Tail.AnchorPoint = Vector2.new(1, 0)
 			Tail.Position = UDim2.new(
 				Position.X.Scale + Size.X.Scale, Position.X.Offset + Size.X.Offset,
@@ -869,40 +573,25 @@ local function Gleam(Frame, Vertical, Depth)
 			Tail.Size = UDim2.new(0, Depth, Size.Y.Scale, Size.Y.Offset)
 		end
 	end
-
-	--- Raised while the canvas is moving, so the light eases off under motion
-	--- and settles back once it stops.
 	local Motion = 0
 	local Before, After = false, false
-
 	local function Update()
 		local Span = Vertical
 			and Frame.AbsoluteCanvasSize.Y - Frame.AbsoluteSize.Y
 			or Frame.AbsoluteCanvasSize.X - Frame.AbsoluteSize.X
-
 		local At = Vertical and Frame.CanvasPosition.Y or Frame.CanvasPosition.X
-
-		--- A couple of pixels of slack, so a canvas that is only fractionally
-		--- taller than its view does not sit there glowing.
 		Before = Span > 2 and At > 2
 		After = Span > 2 and (Span - At) > 2
-
 		Tween(Head, { GroupTransparency = Before and Motion or 1 }, "fade")
 		Tween(Tail, { GroupTransparency = After and Motion or 1 }, "fade")
 	end
-
-	--- Called by the scroller each time the wheel moves the canvas.
 	local Settle = 0
-
 	local function Nudge()
 		Motion = 0.55
 		Settle += 1
-
 		local Mine = Settle
-
 		Tween(Head, { GroupTransparency = Before and Motion or 1 }, "hover")
 		Tween(Tail, { GroupTransparency = After and Motion or 1 }, "hover")
-
 		task.delay(MotionTime("scroll") * 0.9, function()
 			if Settle == Mine then
 				Motion = 0
@@ -910,7 +599,6 @@ local function Gleam(Frame, Vertical, Depth)
 			end
 		end)
 	end
-
 	local Connections = {
 		Frame:GetPropertyChangedSignal("Position"):Connect(Layout),
 		Frame:GetPropertyChangedSignal("Size"):Connect(Layout),
@@ -918,152 +606,103 @@ local function Gleam(Frame, Vertical, Depth)
 		Frame:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(Update),
 		Frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(Update),
 	}
-
 	Layout()
 	task.defer(Update)
-
 	return function()
 		for _, Connection in Connections do
 			Connection:Disconnect()
 		end
-
 		Head:Destroy()
 		Tail:Destroy()
 	end, Nudge
 end
-
---- The innermost scroller the pointer is inside. Nested scrollers would
---- otherwise all act on the same wheel tick and the page would move under
---- whatever list you were actually scrolling.
 local Hovered = nil
-
 local function SmoothScroll(Frame, Axis, Options)
 	local Handle = { Frame = Frame, Enabled = true }
 	local Vertical = Axis ~= "X"
-
 	if not (Options and Options.Gleam == false) then
 		Handle.StopGleam, Handle.Nudge = Gleam(Frame, Vertical, Options and Options.Depth)
 	end
-
 	if not UserInputService.MouseEnabled then
-		--- Touch keeps the engine's own momentum scrolling; only the wheel
-		--- takeover is skipped. The gleam still applies.
 		function Handle:SetEnabled() end
 		function Handle:To() end
 		function Handle:Sync() end
-
 		return Handle
 	end
-
 	Frame.ScrollingEnabled = false
-
 	local Target = Frame.CanvasPosition
-
 	function Handle:SetEnabled(Value)
 		Handle.Enabled = Value
 	end
-
 	function Handle:To(Position)
 		Target = Position
 		Tween(Frame, { CanvasPosition = Target }, "scroll")
 	end
-
-	--- Resyncs the target after something else moved the canvas.
 	function Handle:Sync()
 		Target = Frame.CanvasPosition
 	end
-
 	Frame:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(function()
-		--- Content shrinking under a scrolled view would otherwise strand it.
 		local Span = Vertical
 			and Frame.AbsoluteCanvasSize.Y - Frame.AbsoluteSize.Y
 			or Frame.AbsoluteCanvasSize.X - Frame.AbsoluteSize.X
-
 		Span = math.max(0, Span)
-
 		if Vertical and Target.Y > Span then
 			Handle:To(Vector2.new(0, Span))
 		elseif not Vertical and Target.X > Span then
 			Handle:To(Vector2.new(Span, 0))
 		end
 	end)
-
-	--- Whether our own spring is currently driving the canvas. Without this the
-	--- accumulated target drifts away from reality the moment anything else
-	--- moves the canvas — a tab change, content resizing, a jump to top — and
-	--- the next wheel tick appears to teleport.
 	local Driving = false
 	local Token = 0
-
 	Frame.MouseEnter:Connect(function()
 		Hovered = Frame
 	end)
-
 	Frame.MouseLeave:Connect(function()
 		if Hovered == Frame then
 			Hovered = nil
 		end
 	end)
-
 	Frame.InputChanged:Connect(function(Input)
 		if not Handle.Enabled or Input.UserInputType ~= Enum.UserInputType.MouseWheel then
 			return
 		end
-
-		--- Someone nested inside us owns this tick.
 		if Hovered and Hovered ~= Frame then
 			return
 		end
-
 		local Span = Vertical
 			and Frame.AbsoluteCanvasSize.Y - Frame.AbsoluteSize.Y
 			or Frame.AbsoluteCanvasSize.X - Frame.AbsoluteSize.X
-
 		if Span <= 0 then
 			return
 		end
-
 		if not Driving then
 			Target = Frame.CanvasPosition
 		end
-
 		local Step = Input.Position.Z * (Options and Options.Step or (Vertical and 92 or 56))
-
 		Target = Vertical
 			and Vector2.new(0, Clamp(Target.Y - Step, 0, Span))
 			or Vector2.new(Clamp(Target.X - Step, 0, Span), 0)
-
 		Driving = true
 		Token += 1
-
 		local Mine = Token
-
 		if Handle.Nudge then
 			Handle.Nudge()
 		end
-
 		Tween(Frame, { CanvasPosition = Target }, "scroll")
-
 		task.delay(MotionTime("scroll") * 1.2, function()
 			if Token == Mine then
 				Driving = false
 			end
 		end)
 	end)
-
 	return Handle
 end
-
---- Shared ScreenGui so HUD pieces and windows sort against each other.
 local ScreenGui = nil
-
 local function Screen()
 	if ScreenGui and ScreenGui.Parent then
 		return ScreenGui
 	end
-
 	local Parent = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
-
 	ScreenGui = New("ScreenGui", {
 		Name             = "Kuik",
 		Parent           = Parent,
@@ -1072,22 +711,10 @@ local function Screen()
 		ZIndexBehavior   = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder     = 50,
 	})
-
 	return ScreenGui
 end
-
-
---============================================================================
--- Rows
---
--- Every control is a row: label and optional description on the left, the
--- control itself pinned right. The row's only surface is a ~6% white fill
--- that lifts slightly on hover.
---============================================================================
-
 local function Row(Parent, Options)
 	local HasDescription = Options.Description ~= nil and Options.Description ~= ""
-
 	local Frame = New("Frame", {
 		Name                   = "Row",
 		Parent                 = Parent,
@@ -1100,7 +727,6 @@ local function Row(Parent, Options)
 		Corner(Metrics.RowRadius),
 		Padding(0, 14, 0, 14),
 	})
-
 	local TextColumn = New("Frame", {
 		Name                   = "Text",
 		Parent                 = Frame,
@@ -1112,7 +738,6 @@ local function Row(Parent, Options)
 	}, {
 		List(2),
 	})
-
 	local Label = Text({
 		Parent         = TextColumn,
 		Text           = Options.Label or "",
@@ -1120,9 +745,7 @@ local function Row(Parent, Options)
 		TextTransparency = Theme.TextPrimary,
 		LayoutOrder    = 1,
 	})
-
 	local Description = nil
-
 	if HasDescription then
 		Description = Text({
 			Parent           = TextColumn,
@@ -1133,8 +756,6 @@ local function Row(Parent, Options)
 			LayoutOrder      = 2,
 		})
 	end
-
-	--- Right-hand mount for whatever control the row carries.
 	local Mount = New("Frame", {
 		Name                   = "Mount",
 		Parent                 = Frame,
@@ -1144,19 +765,15 @@ local function Row(Parent, Options)
 		Size                   = UDim2.new(0, Metrics.ToggleWidth, 1, 0),
 		ZIndex                 = 2,
 	})
-
 	if not Options.Flat then
 		Frame.MouseEnter:Connect(function()
 			Tween(Frame, { BackgroundTransparency = Theme.RowHoverTransparency }, "hover")
 		end)
-
 		Frame.MouseLeave:Connect(function()
 			Tween(Frame, { BackgroundTransparency = Theme.RowTransparency }, "hover")
 		end)
-
 		Enter(Frame, "BackgroundTransparency", Theme.RowTransparency, "fade")
 	end
-
 	return {
 		Frame       = Frame,
 		Mount       = Mount,
@@ -1165,32 +782,14 @@ local function Row(Parent, Options)
 		TextColumn  = TextColumn,
 	}
 end
-
-
---============================================================================
--- Controls
---
--- Each returns a handle with :Get(), :Set(Value, Silent) and :Destroy().
--- Set(Value, true) updates the visual without firing the callback, which is
--- what you want when restoring saved settings.
---============================================================================
-
 local Controls = {}
-
---- Forward declarations. Both are defined further down — Attach because
---- Accordion builds a nested container and needs the mixer that mixes it in,
---- SlidingMark because Dropdown uses the shared accent that lives with the
---- block helpers.
 local Attach
 local SlidingMark
 local Layered
-
 function Controls.Toggle(Container, Options)
 	local Handle = {}
 	local Value = Options.Default == true
-
 	local Built = Row(Container, Options)
-
 	local Track = New("Frame", {
 		Name             = "Track",
 		Parent           = Built.Mount,
@@ -1202,9 +801,7 @@ function Controls.Toggle(Container, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, math.floor(Metrics.ToggleHeight / 2))),
 	})
-
 	local KnobSize = Metrics.ToggleHeight - Metrics.KnobInset * 2
-
 	local Knob = New("Frame", {
 		Name             = "Knob",
 		Parent           = Track,
@@ -1214,11 +811,8 @@ function Controls.Toggle(Container, Options)
 		Position         = UDim2.new(0, Metrics.KnobInset, 0.5, 0),
 		Size             = UDim2.new(0, KnobSize, 0, KnobSize),
 	}, {
-		--- Matches the track's own end radius, so the knob reads as the same
-		--- shape rather than a rounded square rattling inside a pill.
 		Corner(math.min(Metrics.PillRadius, math.floor(KnobSize / 2))),
 	})
-
 	local Button = New("TextButton", {
 		Parent                 = Built.Frame,
 		BackgroundTransparency = 1,
@@ -1226,14 +820,11 @@ function Controls.Toggle(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	local function Render(Animate)
 		local Target = Value
 			and UDim2.new(1, -Metrics.KnobInset - KnobSize, 0.5, 0)
 			or UDim2.new(0, Metrics.KnobInset, 0.5, 0)
-
 		local Transparency = Value and 0 or 0.55
-
 		if Animate then
 			Tween(Knob, { Position = Target }, "toss")
 			Tween(Track, { BackgroundTransparency = Transparency }, "item")
@@ -1242,50 +833,37 @@ function Controls.Toggle(Container, Options)
 			Track.BackgroundTransparency = Transparency
 		end
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue == true
 		Render(true)
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Button.Activated:Connect(function()
 		Handle:Set(not Value)
 	end)
-
 	Render(false)
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Slider(Container, Options)
 	local Handle = {}
-
 	local Minimum = Options.Min or 0
 	local Maximum = Options.Max or 100
 	local Step    = Options.Step or 0
 	local Value   = Clamp(Options.Default or Minimum, Minimum, Maximum)
-
-	--- Sliders put the readout where a toggle would sit and drop the track
-	--- across the full row width underneath.
 	local Built = Row(Container, Options)
 	Built.Frame.Size = UDim2.new(1, 0, 0, Metrics.RowHeightTall + 14)
 	Built.TextColumn.AnchorPoint = Vector2.new(0, 0)
 	Built.TextColumn.Position = UDim2.new(0, 0, 0, 10)
 	Built.TextColumn.Size = UDim2.new(1, -70, 0, 0)
-
 	local Readout = Text({
 		Parent           = Built.Mount,
 		Text             = Options.Format and Options.Format(Value) or FormatNumber(Value, Step),
@@ -1297,7 +875,6 @@ function Controls.Slider(Container, Options)
 		Size             = UDim2.new(1, 0, 0, 14),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
 	local Track = New("Frame", {
 		Name                   = "Track",
 		Parent                 = Built.Frame,
@@ -1311,7 +888,6 @@ function Controls.Slider(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local Fill = New("Frame", {
 		Name             = "Fill",
 		Parent           = Track,
@@ -1322,7 +898,6 @@ function Controls.Slider(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local Thumb = New("Frame", {
 		Name             = "Thumb",
 		Parent           = Track,
@@ -1335,13 +910,10 @@ function Controls.Slider(Container, Options)
 	}, {
 		Corner(1),
 	})
-
 	local function Render(Animate)
 		local Span = Maximum - Minimum
 		local Alpha = Span > 0 and (Value - Minimum) / Span or 0
-
 		Readout.Text = Options.Format and Options.Format(Value) or FormatNumber(Value, Step)
-
 		if Animate then
 			Tween(Fill, { Size = UDim2.new(Alpha, 0, 1, 0) }, "snap")
 			Tween(Thumb, { Position = UDim2.new(Alpha, 0, 0.5, 0) }, "snap")
@@ -1350,32 +922,24 @@ function Controls.Slider(Container, Options)
 			Thumb.Position = UDim2.new(Alpha, 0, 0.5, 0)
 		end
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = Clamp(Quantise(NewValue, Step), Minimum, Maximum)
 		Render(true)
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	local Connections = {}
-
 	function Handle:Destroy()
 		for _, Connection in Connections do
 			Connection:Disconnect()
 		end
-
 		table.clear(Connections)
 		Built.Frame:Destroy()
 	end
-
-	--- Hit area is deliberately taller than the 3px track.
 	local Grab = New("TextButton", {
 		Parent                 = Built.Frame,
 		BackgroundTransparency = 1,
@@ -1385,34 +949,23 @@ function Controls.Slider(Container, Options)
 		Size                   = UDim2.new(1, 0, 0, 22),
 		ZIndex                 = 4,
 	})
-
 	local Dragging = false
-
 	local function UpdateFromX(X)
 		local Origin = Track.AbsolutePosition.X
 		local Width  = Track.AbsoluteSize.X
 		local Alpha  = Width > 0 and Clamp((X - Origin) / Width, 0, 1) or 0
-
 		local Raw = Minimum + Alpha * (Maximum - Minimum)
 		local Next = Clamp(Quantise(Raw, Step), Minimum, Maximum)
 		local Changed = Next ~= Value
-
 		Value = Next
-
-		--- Springs while dragging: the target moves every frame, and
-		--- retargeting keeps velocity, so the fill trails the cursor rather
-		--- than teleporting to it.
 		local Fraction = Maximum > Minimum and (Value - Minimum) / (Maximum - Minimum) or 0
-
 		Readout.Text = Options.Format and Options.Format(Value) or FormatNumber(Value, Step)
 		Tween(Fill, { Size = UDim2.new(Fraction, 0, 1, 0) }, "drag")
 		Tween(Thumb, { Position = UDim2.new(Fraction, 0, 0.5, 0) }, "drag")
-
 		if Changed and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	Grab.InputBegan:Connect(function(Input)
 		if Input.UserInputType == Enum.UserInputType.MouseButton1
 			or Input.UserInputType == Enum.UserInputType.Touch then
@@ -1421,18 +974,15 @@ function Controls.Slider(Container, Options)
 			UpdateFromX(Input.Position.X)
 		end
 	end)
-
 	table.insert(Connections, UserInputService.InputChanged:Connect(function(Input)
 		if not Dragging then
 			return
 		end
-
 		if Input.UserInputType == Enum.UserInputType.MouseMovement
 			or Input.UserInputType == Enum.UserInputType.Touch then
 			UpdateFromX(Input.Position.X)
 		end
 	end))
-
 	table.insert(Connections, UserInputService.InputEnded:Connect(function(Input)
 		if Dragging and (Input.UserInputType == Enum.UserInputType.MouseButton1
 			or Input.UserInputType == Enum.UserInputType.Touch) then
@@ -1440,23 +990,17 @@ function Controls.Slider(Container, Options)
 			Tween(Thumb, { Size = UDim2.new(0, Metrics.SliderThumbWidth, 0, Metrics.SliderThumbHeight) }, "toss")
 		end
 	end))
-
 	Render(false)
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Stepper(Container, Options)
 	local Handle = {}
-
 	local Minimum = Options.Min or 0
 	local Maximum = Options.Max or 100
 	local Step    = Options.Step or 1
 	local Value   = Clamp(Options.Default or Minimum, Minimum, Maximum)
-
 	local Built = Row(Container, Options)
-
 	local Chip = New("Frame", {
 		Name                   = "Chip",
 		Parent                 = Built.Mount,
@@ -1469,7 +1013,6 @@ function Controls.Stepper(Container, Options)
 	}, {
 		Corner(Metrics.ChipRadius),
 	})
-
 	local Readout = Text({
 		Parent           = Chip,
 		Text             = FormatNumber(Value, Step),
@@ -1479,9 +1022,6 @@ function Controls.Stepper(Container, Options)
 		Size             = UDim2.new(1, 0, 1, 0),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
-	--- Left half decrements, right half increments. No visible affordance,
-	--- which matches the reference — the chip is the whole control.
 	local Button = New("TextButton", {
 		Parent                 = Chip,
 		BackgroundTransparency = 1,
@@ -1489,54 +1029,41 @@ function Controls.Stepper(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	local function Render()
 		Readout.Text = FormatNumber(Value, Step)
 		Tween(Chip, { BackgroundTransparency = math.max(0, Theme.ChipTransparency - 0.3) }, "press")
-
 		task.delay(MotionTime("press"), function()
 			Tween(Chip, { BackgroundTransparency = Theme.ChipTransparency }, "hover")
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = Clamp(Quantise(NewValue, Step), Minimum, Maximum)
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Button.Activated:Connect(function(Input)
 		local Middle = Chip.AbsolutePosition.X + Chip.AbsoluteSize.X / 2
 		local X = Input and Input.Position and Input.Position.X
 			or UserInputService:GetMouseLocation().X
-
 		Handle:Set(Value + (X < Middle and -Step or Step))
 	end)
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Button(Container, Options)
 	local Handle = {}
 	local Built = Row(Container, Options)
-
 	Built.Mount.Size = UDim2.new(0, 80, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -98, 0, 0)
-
 	local Pill = New("Frame", {
 		Name             = "Pill",
 		Parent           = Built.Mount,
@@ -1548,7 +1075,6 @@ function Controls.Button(Container, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, math.floor(Metrics.TabHeight / 2))),
 	})
-
 	Text({
 		Parent         = Pill,
 		Text           = Options.Action or "Run",
@@ -1560,7 +1086,6 @@ function Controls.Button(Container, Options)
 		Size           = UDim2.new(1, 0, 1, 0),
 		AutomaticSize  = Enum.AutomaticSize.None,
 	})
-
 	local Button = New("TextButton", {
 		Parent                 = Pill,
 		BackgroundTransparency = 1,
@@ -1568,36 +1093,28 @@ function Controls.Button(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	Button.Activated:Connect(function()
 		Tween(Pill, { BackgroundTransparency = 0.4 }, "press")
 		task.delay(MotionTime("press"), function()
 			Tween(Pill, { BackgroundTransparency = 0 }, "press")
 		end)
-
 		if Options.Callback then
 			task.spawn(Options.Callback)
 		end
 	end)
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Keybind(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or Enum.KeyCode.Unknown
 	local Listening = false
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 90, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -108, 0, 0)
-
 	local Chip = New("Frame", {
 		Name                   = "Chip",
 		Parent                 = Built.Mount,
@@ -1610,7 +1127,6 @@ function Controls.Keybind(Container, Options)
 	}, {
 		Corner(Metrics.ChipRadius),
 	})
-
 	local Readout = Text({
 		Parent         = Chip,
 		Text           = Value.Name,
@@ -1621,7 +1137,6 @@ function Controls.Keybind(Container, Options)
 		Size           = UDim2.new(1, 0, 1, 0),
 		AutomaticSize  = Enum.AutomaticSize.None,
 	})
-
 	local Button = New("TextButton", {
 		Parent                 = Chip,
 		BackgroundTransparency = 1,
@@ -1629,71 +1144,54 @@ function Controls.Keybind(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(KeyCode, Silent)
 		Value = KeyCode
 		Readout.Text = KeyCode.Name
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Button.Activated:Connect(function()
 		if Listening then
 			return
 		end
-
 		Listening = true
 		Readout.Text = "..."
 		Tween(Chip, { BackgroundTransparency = math.max(0, Theme.ChipTransparency - 0.25) }, "hover")
-
 		local Connection
 		Connection = UserInputService.InputBegan:Connect(function(Input, Processed)
 			if Processed or Input.UserInputType ~= Enum.UserInputType.Keyboard then
 				return
 			end
-
 			Connection:Disconnect()
 			Listening = false
 			Tween(Chip, { BackgroundTransparency = Theme.ChipTransparency }, "hover")
-
 			if Input.KeyCode == Enum.KeyCode.Escape then
 				Readout.Text = Value.Name
 				return
 			end
-
 			Handle:Set(Input.KeyCode)
 		end)
 	end)
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Dropdown(Container, Options, Owner)
 	local Handle = {}
-
 	local Items = Options.Items or {}
 	local Value = Options.Default or Items[1]
 	local Open = false
-
 	local Width = Options.Width or 110
 	local EntryHeight = 24
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, Width, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -(Width + 18), 0, 0)
-
 	local Chip = New("Frame", {
 		Name                   = "Chip",
 		Parent                 = Built.Mount,
@@ -1707,7 +1205,6 @@ function Controls.Dropdown(Container, Options, Owner)
 		Corner(Metrics.ChipRadius),
 		Padding(0, 8),
 	})
-
 	local Readout = Text({
 		Parent         = Chip,
 		Text           = tostring(Value),
@@ -1718,8 +1215,6 @@ function Controls.Dropdown(Container, Options, Owner)
 		Size           = UDim2.new(1, -12, 1, 0),
 		AutomaticSize  = Enum.AutomaticSize.None,
 	})
-
-	--- The same chevron the accordion uses, so the two read as one family.
 	local Chevron = New("Frame", {
 		Parent                 = Chip,
 		BackgroundTransparency = 1,
@@ -1727,9 +1222,7 @@ function Controls.Dropdown(Container, Options, Owner)
 		Position               = UDim2.new(1, 0, 0.5, 0),
 		Size                   = UDim2.new(0, 10, 0, 10),
 	})
-
 	local Arms = {}
-
 	for Index = 1, 2 do
 		Arms[Index] = New("Frame", {
 			Parent                 = Chevron,
@@ -1742,14 +1235,7 @@ function Controls.Dropdown(Container, Options, Owner)
 			Rotation               = Index == 1 and 45 or -45,
 		})
 	end
-
-	--- The menu lives on the window's overlay, not inside the row. Parented to
-	--- the chip it was clipped by the body's ClipsDescendants and buried under
-	--- every later row; on the overlay it floats above the whole window.
 	local Layer = Owner and Owner._Overlay and Owner:_Overlay() or Screen()
-
-	--- A clipping shell whose height is animated, wrapping a list that sizes
-	--- itself: this is what makes it actually drop down rather than appear.
 	local Menu = New("Frame", {
 		Name                   = "DropdownMenu",
 		Parent                 = Layer,
@@ -1768,7 +1254,6 @@ function Controls.Dropdown(Container, Options, Owner)
 			Thickness    = 1,
 		}),
 	})
-
 	local Inner = New("CanvasGroup", {
 		Name                   = "Inner",
 		Parent                 = Menu,
@@ -1779,9 +1264,6 @@ function Controls.Dropdown(Container, Options, Owner)
 	}, {
 		Padding(4),
 	})
-
-	--- Always a scroller: it costs nothing when the list fits, and it means the
-	--- overflow case is not a second code path.
 	local Scroll = New("ScrollingFrame", {
 		Name                   = "Scroll",
 		Parent                 = Inner,
@@ -1795,121 +1277,84 @@ function Controls.Dropdown(Container, Options, Owner)
 		ClipsDescendants       = true,
 		ZIndex                 = 42,
 	})
-
-	--- Named Rows, not Items: this widget already has an `Items` list, and
-	--- shadowing it made the entry loop iterate the frame instead.
 	local Canvas, Rows = Layered(Scroll, 1)
-
 	SmoothScroll(Scroll, "Y", { Depth = 14 })
-
 	local Entries = {}
-
 	local Mark = nil
-
 	local function Render()
 		Readout.Text = tostring(Value)
-
 		local Chosen = nil
-
 		for Item, Parts in Entries do
 			local On = Item == Value
-
 			if On then
 				Chosen = Parts.Entry
 			end
-
 			Tween(Parts.Label, { TextTransparency = On and Theme.TextPrimary or Theme.TextSecondary }, "hover")
 		end
-
 		if Mark then
 			Mark:To(Chosen, Canvas)
 		end
 	end
-
 	local function Height()
 		return math.min(#Items, Options.Visible or 6) * (EntryHeight + 1) + 8
 	end
-
-	--- Anchors the menu under the chip, in the layer's own coordinate space,
-	--- and flips it above when it would run off the bottom of the viewport.
 	local Upward = false
-
 	local function Place()
 		local Origin = Layer.AbsolutePosition
 		local Full = Height()
 		local Below = Chip.AbsolutePosition.Y + Chip.AbsoluteSize.Y + 5
 		local Viewport = Screen().AbsoluteSize.Y
-
 		Upward = Viewport > 0 and Below + Full > Viewport - 8
-
 		Menu.Position = UDim2.fromOffset(
 			Chip.AbsolutePosition.X - Origin.X,
 			Upward and (Chip.AbsolutePosition.Y - Origin.Y - 5) or (Below - Origin.Y)
 		)
-
-		--- Growing upward means growing from the bottom edge.
 		Menu.AnchorPoint = Vector2.new(0, Upward and 1 or 0)
 	end
-
 	local function Close()
 		if not Open then
 			return
 		end
-
 		Open = false
-
 		for Index, Arm in Arms do
 			Tween(Arm, { Rotation = Index == 1 and 45 or -45 }, "morph")
 		end
-
 		Tween(Menu, { Size = UDim2.new(0, Width, 0, 0) }, "snap")
 		Tween(Inner, { GroupTransparency = 1 }, "exit")
-
 		task.delay(MotionTime("snap"), function()
 			if not Open then
 				Menu.Visible = false
 			end
 		end)
 	end
-
 	local function Show()
 		Open = true
 		Place()
-
 		Menu.Size = UDim2.new(0, Width, 0, 0)
 		Menu.Visible = true
 		Inner.GroupTransparency = 1
-
 		for Index, Arm in Arms do
 			Tween(Arm, { Rotation = Index == 1 and -45 or 45 }, "morph")
 		end
-
-		--- Springs open on the Y axis, so it unrolls rather than appearing.
 		Tween(Menu, { Size = UDim2.new(0, Width, 0, Height()) }, "reveal")
 		Tween(Inner, { GroupTransparency = 0 }, "fade")
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Open()
 		Show()
 	end
-
 	function Handle:Close()
 		Close()
 	end
-
 	for Index, Item in Items do
 		local Entry = New("TextButton", {
 			Parent                 = Rows,
@@ -1923,7 +1368,6 @@ function Controls.Dropdown(Container, Options, Owner)
 		}, {
 			Corner(Metrics.RowRadius),
 		})
-
 		local Label = Text({
 			Parent           = Entry,
 			Text             = tostring(Item),
@@ -1936,25 +1380,19 @@ function Controls.Dropdown(Container, Options, Owner)
 			AutomaticSize    = Enum.AutomaticSize.None,
 			ZIndex           = 44,
 		})
-
 		Entries[Item] = { Entry = Entry, Label = Label }
-
 		Entry.MouseEnter:Connect(function()
 			Tween(Entry, { BackgroundTransparency = 0.9 }, "hover")
 		end)
-
 		Entry.MouseLeave:Connect(function()
 			Tween(Entry, { BackgroundTransparency = 1 }, "hover")
 		end)
-
 		Entry.Activated:Connect(function()
 			Handle:Set(Item)
 			Close()
 		end)
 	end
-
 	Mark = SlidingMark(Canvas)
-
 	local Button = New("TextButton", {
 		Parent                 = Chip,
 		BackgroundTransparency = 1,
@@ -1962,7 +1400,6 @@ function Controls.Dropdown(Container, Options, Owner)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	Button.Activated:Connect(function()
 		if Open then
 			Close()
@@ -1970,61 +1407,46 @@ function Controls.Dropdown(Container, Options, Owner)
 			Show()
 		end
 	end)
-
 	Chip.MouseEnter:Connect(function()
 		Tween(Chip, { BackgroundTransparency = math.max(0, Theme.ChipTransparency - 0.18) }, "hover")
 	end)
-
 	Chip.MouseLeave:Connect(function()
 		Tween(Chip, { BackgroundTransparency = Theme.ChipTransparency }, "hover")
 	end)
-
-	--- Clicking anywhere that is not the menu dismisses it.
 	local Outside = UserInputService.InputBegan:Connect(function(Input, Processed)
 		if not Open or Processed then
 			return
 		end
-
 		if Input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and Input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-
 		local Point = Input.Position
 		local Top, Size = Menu.AbsolutePosition, Menu.AbsoluteSize
-
 		local Inside = Point.X >= Top.X and Point.X <= Top.X + Size.X
 			and Point.Y >= Top.Y and Point.Y <= Top.Y + Size.Y
-
 		if not Inside then
 			Close()
 		end
 	end)
-
 	if Owner and Owner._Register then
 		Owner:_Register(Close)
 	end
-
 	function Handle:Destroy()
 		Outside:Disconnect()
 		Menu:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
 function Controls.Input(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or ""
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 140, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -158, 0, 0)
-
 	local Field = New("TextBox", {
 		Name                   = "Field",
 		Parent                 = Built.Mount,
@@ -2047,47 +1469,34 @@ function Controls.Input(Container, Options)
 		Corner(Metrics.ChipRadius),
 		Padding(0, 8),
 	})
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Field.Text = NewValue
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Field.Focused:Connect(function()
 		Tween(Field, { BackgroundTransparency = math.max(0, Theme.ChipTransparency - 0.25) }, "hover")
 	end)
-
 	Field.FocusLost:Connect(function(Entered)
 		Tween(Field, { BackgroundTransparency = Theme.ChipTransparency }, "hover")
-
 		Value = Field.Text
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Value, Entered)
 		end
 	end)
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- A block of prose. No control, no fill — just text at row rhythm.
 function Controls.Paragraph(Container, Options)
 	local Handle = {}
-
 	local Frame = New("Frame", {
 		Name                   = "Paragraph",
 		Parent                 = Container,
@@ -2099,7 +1508,6 @@ function Controls.Paragraph(Container, Options)
 		Padding(2, 14, 6, 14),
 		List(5),
 	})
-
 	if Options.Label then
 		Text({
 			Parent      = Frame,
@@ -2109,7 +1517,6 @@ function Controls.Paragraph(Container, Options)
 			LayoutOrder = 1,
 		})
 	end
-
 	local Body = Text({
 		Parent           = Frame,
 		Text             = Options.Text or "",
@@ -2118,8 +1525,6 @@ function Controls.Paragraph(Container, Options)
 		TextWrapped      = true,
 		LayoutOrder      = 2,
 	})
-
-	--- An optional embed under the prose, for a diagram or a screenshot.
 	if Options.Image then
 		local Picture = New("ImageLabel", {
 			Parent                 = Frame,
@@ -2134,24 +1539,18 @@ function Controls.Paragraph(Container, Options)
 		}, {
 			Corner(Metrics.ChipRadius),
 		})
-
 		Tween(Picture, { ImageTransparency = 0 }, "fade")
 		Handle.Picture = Picture
 	end
-
 	function Handle:Set(NewText)
 		SwapText(Body, NewText)
 	end
-
 	function Handle:Destroy()
 		Frame:Destroy()
 	end
-
 	Handle.Frame = Frame
-
 	return Handle
 end
-
 function Controls.Gap(Container, Options)
 	local Frame = New("Frame", {
 		Name                   = "Gap",
@@ -2160,19 +1559,8 @@ function Controls.Gap(Container, Options)
 		Size                   = UDim2.new(1, 0, 0, (Options and Options.Height) or 12),
 		LayoutOrder            = (Options and Options.LayoutOrder) or 0,
 	})
-
 	return { Frame = Frame, Destroy = function() Frame:Destroy() end }
 end
-
-
---============================================================================
--- Blocks
---
--- Rows put their control on the right. A block puts its label on top and
--- gives the control the full width underneath — which is what anything with
--- a shape of its own (a chart, a list, a table) needs.
---============================================================================
-
 local function Block(Parent, Options, Height)
 	local Frame = New("Frame", {
 		Name                   = "Block",
@@ -2188,9 +1576,7 @@ local function Block(Parent, Options, Height)
 		Padding(12, 14, 12, 14),
 		List(8),
 	})
-
 	local Head, Aside = nil, nil
-
 	if Options.Label then
 		Head = New("Frame", {
 			Name                   = "Head",
@@ -2200,10 +1586,6 @@ local function Block(Parent, Options, Height)
 			AutomaticSize          = Enum.AutomaticSize.Y,
 			LayoutOrder            = 1,
 		})
-
-		--- Deliberately no list layout on Head: the text stacks on the left and
-		--- Aside pins to the right. A layout here would sweep anything parented
-		--- for corner placement into the row instead of pinning it.
 		local Column = New("Frame", {
 			Name                   = "Column",
 			Parent                 = Head,
@@ -2213,14 +1595,12 @@ local function Block(Parent, Options, Height)
 		}, {
 			List(2),
 		})
-
 		Text({
 			Parent      = Column,
 			Text        = Options.Label,
 			TextSize    = Metrics.RowLabelSize,
 			LayoutOrder = 1,
 		})
-
 		if Options.Description and Options.Description ~= "" then
 			Text({
 				Parent           = Column,
@@ -2231,8 +1611,6 @@ local function Block(Parent, Options, Height)
 				LayoutOrder      = 2,
 			})
 		end
-
-		--- The corner slot: a swatch, a readout, a count.
 		Aside = New("Frame", {
 			Name                   = "Aside",
 			Parent                 = Head,
@@ -2242,7 +1620,6 @@ local function Block(Parent, Options, Height)
 			Size                   = UDim2.new(0, (Options.AsideWidth or 100) - 12, 0, 20),
 		})
 	end
-
 	local Content = New("Frame", {
 		Name                   = "Content",
 		Parent                 = Frame,
@@ -2251,24 +1628,17 @@ local function Block(Parent, Options, Height)
 		AutomaticSize          = Height and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
 		LayoutOrder            = 2,
 	})
-
 	if not Options.Flat then
 		Frame.MouseEnter:Connect(function()
 			Tween(Frame, { BackgroundTransparency = Theme.RowHoverTransparency }, "hover")
 		end)
-
 		Frame.MouseLeave:Connect(function()
 			Tween(Frame, { BackgroundTransparency = Theme.RowTransparency }, "hover")
 		end)
-
 		Enter(Frame, "BackgroundTransparency", Theme.RowTransparency, "fade")
 	end
-
 	return { Frame = Frame, Content = Content, Head = Head, Aside = Aside }
 end
-
---- Splits a scroll canvas into a free layer and a laid-out one, so a marker
---- can be positioned by hand while the rows beside it still flow.
 function Layered(Parent, Gap)
 	local Canvas = New("Frame", {
 		Name                   = "Canvas",
@@ -2277,7 +1647,6 @@ function Layered(Parent, Gap)
 		Size                   = UDim2.new(1, 0, 0, 0),
 		AutomaticSize          = Enum.AutomaticSize.Y,
 	})
-
 	local Items = New("Frame", {
 		Name                   = "Items",
 		Parent                 = Canvas,
@@ -2287,13 +1656,8 @@ function Layered(Parent, Gap)
 	}, {
 		List(Gap or 1),
 	})
-
 	return Canvas, Items
 end
-
---- One accent rule that springs between rows, rather than a rule per row
---- fading in and out. Same idea as the tab bar's single pill: the movement is
---- what tells you the selection changed.
 function SlidingMark(Parent)
 	local Mark = New("Frame", {
 		Name                   = "Mark",
@@ -2305,72 +1669,45 @@ function SlidingMark(Parent)
 		Size                   = UDim2.new(0, 1, 0, 0),
 		ZIndex                 = 6,
 	})
-
 	local Handle = { Frame = Mark }
 	local Placed = false
-
 	function Handle:To(Entry, Container)
 		if not Entry then
 			Tween(Mark, { BackgroundTransparency = 1 }, "fade")
 			Placed = false
 			return
 		end
-
-		--- A child's AbsolutePosition already accounts for CanvasPosition, so
-		--- adding it back converts to canvas space, which is what the marker
-		--- lives in.
 		local Offset = Entry.AbsolutePosition.Y - Container.AbsolutePosition.Y
-
 		if Container:IsA("ScrollingFrame") then
 			Offset += Container.CanvasPosition.Y
 		end
-
 		local Position = UDim2.new(0, 0, 0, Offset)
 		local Size = UDim2.new(0, 1, 0, Entry.AbsoluteSize.Y)
-
 		if Placed then
 			Tween(Mark, { Position = Position, Size = Size }, "morph")
 		else
-			--- First placement has nowhere to slide from, so it just appears.
 			Mark.Position = Position
 			Mark.Size = Size
 			Placed = true
 		end
-
 		Tween(Mark, { BackgroundTransparency = Theme.RuleTransparency }, "fade")
 	end
-
 	return Handle
 end
-
---- Shared teardown for the block-shaped widgets.
 local function BlockHandle(Built, Extra)
 	local Handle = Extra or {}
-
 	Handle.Frame = Built.Frame
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	return Handle
 end
-
---- A hex string for RichText, from a Color3.
 local function Hex(Colour)
 	return string.format("#%02x%02x%02x",
 		math.floor(Colour.R * 255 + 0.5),
 		math.floor(Colour.G * 255 + 0.5),
 		math.floor(Colour.B * 255 + 0.5))
 end
-
-
---============================================================================
--- Structure
---============================================================================
-
---- A horizontal hairline, optionally interrupted by a label. The only piece
--- of chrome in the library that draws across rather than down.
 function Controls.Divider(Container, Options)
 	local Frame = New("Frame", {
 		Name                   = "Divider",
@@ -2381,7 +1718,6 @@ function Controls.Divider(Container, Options)
 	}, {
 		Padding(0, 14),
 	})
-
 	local function Line(Order)
 		return New("Frame", {
 			Parent                 = Frame,
@@ -2392,7 +1728,6 @@ function Controls.Divider(Container, Options)
 			LayoutOrder            = Order,
 		})
 	end
-
 	if not Options.Label then
 		local Rule = Line(1)
 		Rule.AnchorPoint = Vector2.new(0, 0.5)
@@ -2405,10 +1740,8 @@ function Controls.Divider(Container, Options)
 			SortOrder           = Enum.SortOrder.LayoutOrder,
 			VerticalAlignment   = Enum.VerticalAlignment.Center,
 		})
-
 		local Left = Line(1)
 		Left.Size = UDim2.new(0, 12, 0, 1)
-
 		Text({
 			Parent           = Frame,
 			Text             = Options.Label,
@@ -2418,18 +1751,13 @@ function Controls.Divider(Container, Options)
 			Size             = UDim2.new(0, 0, 0, 14),
 			LayoutOrder      = 2,
 		})
-
-		--- Fills whatever the label leaves. Sizing it as a fraction of the
-		--- parent only happens to fit short labels — a long one overflows.
 		local Right = Line(3)
 		Right.Size = UDim2.new(0, 0, 0, 1)
-
 		New("UIFlexItem", {
 			Parent   = Right,
 			FlexMode = Enum.UIFlexMode.Fill,
 		})
 	end
-
 	return {
 		Frame = Frame,
 		Destroy = function()
@@ -2437,13 +1765,9 @@ function Controls.Divider(Container, Options)
 		end,
 	}
 end
-
---- A collapsible container. Returns a full container, so anything that can go
---- on a page can go inside one — including another accordion.
 function Controls.Accordion(Container, Options, Owner)
 	local Handle = {}
 	local Open = Options.Open == true
-
 	local Frame = New("Frame", {
 		Name                   = "Accordion",
 		Parent                 = Container,
@@ -2455,7 +1779,6 @@ function Controls.Accordion(Container, Options, Owner)
 	}, {
 		List(Metrics.RowGap),
 	})
-
 	local Header = New("Frame", {
 		Name                   = "Header",
 		Parent                 = Frame,
@@ -2468,7 +1791,6 @@ function Controls.Accordion(Container, Options, Owner)
 		Corner(Metrics.RowRadius),
 		Padding(0, 14),
 	})
-
 	local Column = New("Frame", {
 		Parent                 = Header,
 		BackgroundTransparency = 1,
@@ -2479,14 +1801,12 @@ function Controls.Accordion(Container, Options, Owner)
 	}, {
 		List(2),
 	})
-
 	Text({
 		Parent      = Column,
 		Text        = Options.Label or "",
 		TextSize    = Metrics.RowLabelSize,
 		LayoutOrder = 1,
 	})
-
 	if Options.Description then
 		Text({
 			Parent           = Column,
@@ -2497,9 +1817,6 @@ function Controls.Accordion(Container, Options, Owner)
 			LayoutOrder      = 2,
 		})
 	end
-
-	--- Chevron drawn from two bars rather than an asset, like every other
-	--- glyph in the library.
 	local Chevron = New("Frame", {
 		Name                   = "Chevron",
 		Parent                 = Header,
@@ -2508,9 +1825,7 @@ function Controls.Accordion(Container, Options, Owner)
 		Position               = UDim2.new(1, 0, 0.5, 0),
 		Size                   = UDim2.new(0, 12, 0, 12),
 	})
-
 	local Arms = {}
-
 	for Index = 1, 2 do
 		Arms[Index] = New("Frame", {
 			Parent                 = Chevron,
@@ -2523,9 +1838,6 @@ function Controls.Accordion(Container, Options, Owner)
 			Rotation               = Index == 1 and 45 or -45,
 		})
 	end
-
-	--- A clipping shell whose height is animated, wrapping a body that sizes
-	--- itself. Toggling Visible would make the whole page jump.
 	local Shell = New("Frame", {
 		Name                   = "Shell",
 		Parent                 = Frame,
@@ -2534,7 +1846,6 @@ function Controls.Accordion(Container, Options, Owner)
 		ClipsDescendants       = true,
 		LayoutOrder            = 2,
 	})
-
 	local Body = New("CanvasGroup", {
 		Name                   = "Body",
 		Parent                 = Shell,
@@ -2546,38 +1857,29 @@ function Controls.Accordion(Container, Options, Owner)
 		Padding(0, 0, 0, 12),
 		List(Metrics.RowGap),
 	})
-
 	local Order = 0
-
 	local function Render(Animate)
 		for Index, Arm in Arms do
 			local Target = Open
 				and (Index == 1 and -45 or 45)
 				or (Index == 1 and 45 or -45)
-
 			if Animate then
 				Tween(Arm, { Rotation = Target }, "morph")
 			else
 				Arm.Rotation = Target
 			end
 		end
-
 		if Open then
-			--- Track content growth once the reveal has finished.
 			Shell.AutomaticSize = Enum.AutomaticSize.None
-
 			local Height = Body.AbsoluteSize.Y
-
 			if not Animate or Height <= 0 then
 				Shell.AutomaticSize = Enum.AutomaticSize.Y
 				Body.GroupTransparency = 0
 				return
 			end
-
 			Shell.Size = UDim2.new(1, 0, 0, 0)
 			Tween(Shell, { Size = UDim2.new(1, 0, 0, Height) }, "reveal")
 			Tween(Body, { GroupTransparency = 0 }, "expand")
-
 			task.delay(MotionTime("expand"), function()
 				if Open then
 					Shell.AutomaticSize = Enum.AutomaticSize.Y
@@ -2585,7 +1887,6 @@ function Controls.Accordion(Container, Options, Owner)
 			end)
 		else
 			Shell.AutomaticSize = Enum.AutomaticSize.None
-
 			if Animate then
 				Tween(Shell, { Size = UDim2.new(1, 0, 0, 0) }, "snap")
 				Tween(Body, { GroupTransparency = 1 }, "exit")
@@ -2595,7 +1896,6 @@ function Controls.Accordion(Container, Options, Owner)
 			end
 		end
 	end
-
 	local Button = New("TextButton", {
 		Parent                 = Header,
 		BackgroundTransparency = 1,
@@ -2603,99 +1903,71 @@ function Controls.Accordion(Container, Options, Owner)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	Button.Activated:Connect(function()
 		Open = not Open
 		Render(true)
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Open)
 		end
 	end)
-
 	Header.MouseEnter:Connect(function()
 		Tween(Header, { BackgroundTransparency = Theme.RowHoverTransparency }, "hover")
 	end)
-
 	Header.MouseLeave:Connect(function()
 		Tween(Header, { BackgroundTransparency = Theme.RowTransparency }, "hover")
 	end)
-
 	function Handle:_Mount()
 		return Body
 	end
-
 	function Handle:_Order()
 		Order += 1
 		return Order
 	end
-
 	function Handle:_Overlay()
 		return Owner and Owner._Overlay and Owner:_Overlay() or Screen()
 	end
-
 	function Handle:_Register(Close)
 		if Owner and Owner._Register then
 			Owner:_Register(Close)
 		end
 	end
-
 	function Handle:IsOpen()
 		return Open
 	end
-
 	function Handle:SetOpen(Value, Animate)
 		Open = Value == true
 		Render(Animate ~= false)
 	end
-
 	function Handle:Destroy()
 		Frame:Destroy()
 	end
-
 	Handle.Frame = Frame
 	Render(false)
-
 	return Attach(Handle)
 end
-
-
---============================================================================
--- Selection
---============================================================================
-
---- Exclusive selection. A hairline ring with a filled centre, which is the
---- only circle in the library besides the toggle knob.
 function Controls.Radio(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or (Options.Items or {})[1]
 	local Buttons = {}
-
 	local Built = Block(Container, Options)
-
 	New("UIListLayout", {
 		Parent    = Built.Content,
 		Padding   = UDim.new(0, 4),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-
 	local function Render()
 		for Item, Parts in Buttons do
 			local Selected = Item == Value
-
 			Tween(Parts.Dot, { Size = Selected and UDim2.new(0, 6, 0, 6) or UDim2.new(0, 0, 0, 0) }, "toss")
 			Tween(Parts.Dot, { BackgroundTransparency = Selected and 0 or 1 }, "hover")
-
 			Tween(Parts.Ring, {
 				Transparency = Selected and 0 or Theme.TextTertiary,
 			}, "hover")
-
 			Tween(Parts.Label, {
 				TextTransparency = Selected and Theme.TextPrimary or Theme.TextSecondary,
 			}, "hover")
 		end
 	end
-
 	for Index, Item in Options.Items or {} do
 		local Entry = New("TextButton", {
 			Parent                 = Built.Content,
@@ -2704,7 +1976,6 @@ function Controls.Radio(Container, Options)
 			Size                   = UDim2.new(1, 0, 0, 24),
 			LayoutOrder            = Index,
 		})
-
 		New("UIListLayout", {
 			Parent            = Entry,
 			Padding           = UDim.new(0, 9),
@@ -2712,7 +1983,6 @@ function Controls.Radio(Container, Options)
 			SortOrder         = Enum.SortOrder.LayoutOrder,
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 		})
-
 		local Circle = New("Frame", {
 			Parent                 = Entry,
 			BackgroundTransparency = 1,
@@ -2721,14 +1991,12 @@ function Controls.Radio(Container, Options)
 		}, {
 			Corner(7),
 		})
-
 		local Ring = New("UIStroke", {
 			Parent       = Circle,
 			Color        = Theme.White,
 			Transparency = Theme.TextTertiary,
 			Thickness    = 1,
 		})
-
 		local Dot = New("Frame", {
 			Parent                 = Circle,
 			BackgroundColor3       = Theme.White,
@@ -2740,7 +2008,6 @@ function Controls.Radio(Container, Options)
 		}, {
 			Corner(4),
 		})
-
 		local Label = Text({
 			Parent           = Entry,
 			Text             = tostring(Item),
@@ -2751,41 +2018,30 @@ function Controls.Radio(Container, Options)
 			Size             = UDim2.new(0, 0, 1, 0),
 			LayoutOrder      = 2,
 		})
-
 		Buttons[Item] = { Ring = Ring, Dot = Dot, Label = Label }
-
 		Entry.Activated:Connect(function()
 			Handle:Set(Item)
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- A square tick, for the cases where a switch would overstate the change.
 function Controls.Checkbox(Container, Options)
 	local Handle = {}
 	local Value = Options.Default == true
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 18, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -36, 0, 0)
-
 	local Box = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundColor3       = Theme.White,
@@ -2802,10 +2058,7 @@ function Controls.Checkbox(Container, Options)
 			Thickness    = 1,
 		}),
 	})
-
-	--- Two bars, rotated into a tick.
 	local Arms = {}
-
 	for Index = 1, 2 do
 		Arms[Index] = New("Frame", {
 			Parent                 = Box,
@@ -2818,15 +2071,12 @@ function Controls.Checkbox(Container, Options)
 			Rotation               = Index == 1 and 45 or -45,
 		})
 	end
-
 	local function Render()
 		Tween(Box, { BackgroundTransparency = Value and 0 or 1 }, "item")
-
 		for _, Arm in Arms do
 			Tween(Arm, { BackgroundTransparency = Value and 0 or 1 }, "item")
 		end
 	end
-
 	local Button = New("TextButton", {
 		Parent                 = Built.Frame,
 		BackgroundTransparency = 1,
@@ -2834,46 +2084,34 @@ function Controls.Checkbox(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue == true
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Button.Activated:Connect(function()
 		Handle:Set(not Value)
 	end)
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- Multi-select pills, the same shape as the tab bar.
 function Controls.Chips(Container, Options)
 	local Handle = {}
 	local Selected = {}
 	local Pills = {}
-
 	for _, Item in Options.Default or {} do
 		Selected[Item] = true
 	end
-
 	local Built = Block(Container, Options)
-
 	New("UIListLayout", {
 		Parent              = Built.Content,
 		Padding             = UDim.new(0, 6),
@@ -2882,11 +2120,9 @@ function Controls.Chips(Container, Options)
 		Wraps               = true,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	local function Render()
 		for Item, Parts in Pills do
 			local On = Selected[Item] == true
-
 			Tween(Parts.Pill, { BackgroundTransparency = On and 0 or 1 }, "hover")
 			Tween(Parts.Label, {
 				TextColor3       = On and Theme.Black or Theme.White,
@@ -2895,7 +2131,6 @@ function Controls.Chips(Container, Options)
 			Parts.Stroke.Transparency = On and 1 or 0.65
 		end
 	end
-
 	for Index, Item in Options.Items or {} do
 		local Pill = New("Frame", {
 			Parent                 = Built.Content,
@@ -2909,14 +2144,12 @@ function Controls.Chips(Container, Options)
 			Corner(math.min(Metrics.PillRadius, 12)),
 			Padding(0, 11),
 		})
-
 		local Stroke = New("UIStroke", {
 			Parent       = Pill,
 			Color        = Theme.White,
 			Transparency = 0.65,
 			Thickness    = 1,
 		})
-
 		local Label = New("TextLabel", {
 			Parent                 = Pill,
 			BackgroundTransparency = 1,
@@ -2929,7 +2162,6 @@ function Controls.Chips(Container, Options)
 			Size                   = UDim2.new(0, 0, 1, 0),
 			ZIndex                 = 2,
 		})
-
 		local Button = New("TextButton", {
 			Parent                 = Pill,
 			BackgroundTransparency = 1,
@@ -2937,59 +2169,42 @@ function Controls.Chips(Container, Options)
 			Size                   = UDim2.new(1, 0, 1, 0),
 			ZIndex                 = 3,
 		})
-
 		Pills[Item] = { Pill = Pill, Label = Label, Stroke = Stroke }
-
 		Button.Activated:Connect(function()
 			Selected[Item] = not Selected[Item] or nil
 			Render()
-
 			if Options.Callback then
 				task.spawn(Options.Callback, Handle:Get())
 			end
 		end)
 	end
-
 	function Handle:Get()
 		local Out = {}
-
 		for _, Item in Options.Items or {} do
 			if Selected[Item] then
 				table.insert(Out, Item)
 			end
 		end
-
 		return Out
 	end
-
 	function Handle:Set(Values, Silent)
 		table.clear(Selected)
-
 		for _, Item in Values or {} do
 			Selected[Item] = true
 		end
-
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Handle:Get())
 		end
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- A scrollable, selectable list. The selected row takes a left hairline and
---- full-white text rather than a fill, which keeps it in the language.
 function Controls.List(Container, Options)
 	local Handle = {}
 	local Value = Options.Default
 	local Entries = {}
-
 	local Built = Block(Container, Options, Options.Height or 132)
-
 	local Scroll = New("ScrollingFrame", {
 		Parent                 = Built.Content,
 		BackgroundTransparency = 1,
@@ -3001,31 +2216,22 @@ function Controls.List(Container, Options)
 		ScrollingDirection     = Enum.ScrollingDirection.Y,
 		ClipsDescendants       = true,
 	})
-
 	local Canvas, Rows = Layered(Scroll, 1)
-
 	SmoothScroll(Scroll, "Y")
-
 	local Mark = SlidingMark(Canvas)
-
 	local function Render()
 		local Chosen = nil
-
 		for Item, Parts in Entries do
 			local On = Item == Value
-
 			if On then
 				Chosen = Parts.Entry
 			end
-
 			Tween(Parts.Label, {
 				TextTransparency = On and Theme.TextPrimary or Theme.TextSecondary,
 			}, "hover")
 		end
-
 		Mark:To(Chosen, Canvas)
 	end
-
 	for Index, Item in Options.Items or {} do
 		local Entry = New("TextButton", {
 			Parent                 = Rows,
@@ -3036,7 +2242,6 @@ function Controls.List(Container, Options)
 			Size                   = UDim2.new(1, 0, 0, 24),
 			LayoutOrder            = Index,
 		})
-
 		local Label = Text({
 			Parent           = Entry,
 			Text             = tostring(Item),
@@ -3047,56 +2252,36 @@ function Controls.List(Container, Options)
 			Size             = UDim2.new(1, -10, 1, 0),
 			AutomaticSize    = Enum.AutomaticSize.None,
 		})
-
 		Entries[Item] = { Entry = Entry, Label = Label }
-
 		Entry.MouseEnter:Connect(function()
 			Tween(Entry, { BackgroundTransparency = 0.94 }, "hover")
 		end)
-
 		Entry.MouseLeave:Connect(function()
 			Tween(Entry, { BackgroundTransparency = 1 }, "hover")
 		end)
-
 		Entry.Activated:Connect(function()
 			Handle:Set(Item)
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
-
---============================================================================
--- Readouts
---============================================================================
-
---- A small semantic tag pinned right. The only place colour is allowed to
---- carry meaning inside a row.
 function Controls.Badge(Container, Options)
 	local Handle = {}
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 92, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -110, 0, 0)
-
 	local Colour = Options.Color or Theme.Neutral
-
 	local Pill = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundColor3       = Colour,
@@ -3110,7 +2295,6 @@ function Controls.Badge(Container, Options)
 		Corner(math.min(Metrics.PillRadius, 10)),
 		Padding(0, 9),
 	})
-
 	local Label = New("TextLabel", {
 		Parent                 = Pill,
 		BackgroundTransparency = 1,
@@ -3121,34 +2305,24 @@ function Controls.Badge(Container, Options)
 		AutomaticSize          = Enum.AutomaticSize.X,
 		Size                   = UDim2.new(0, 0, 1, 0),
 	})
-
 	function Handle:Set(NewText, NewColour)
 		SwapText(Label, NewText)
-
 		if NewColour then
 			Label.TextColor3 = NewColour
 			Pill.BackgroundColor3 = NewColour
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- Monospace key/value, the same voice as the watermark. For anything the
---- player reads rather than changes.
 function Controls.Status(Container, Options)
 	local Handle = {}
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 170, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -188, 0, 0)
-
 	local Value = Text({
 		Parent           = Built.Mount,
 		Text             = tostring(Options.Value or ""),
@@ -3160,36 +2334,27 @@ function Controls.Status(Container, Options)
 		Size             = UDim2.new(1, 0, 1, 0),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
 	function Handle:Get()
 		return Value.Text
 	end
-
 	function Handle:Set(NewValue)
 		SwapText(Value, tostring(NewValue))
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- Determinate progress. Same track as the slider, no thumb.
 function Controls.Progress(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or 0
 	local Maximum = Options.Max or 1
-
 	local Built = Row(Container, Options)
 	Built.Frame.Size = UDim2.new(1, 0, 0, Metrics.RowHeightTall + 14)
 	Built.TextColumn.AnchorPoint = Vector2.new(0, 0)
 	Built.TextColumn.Position = UDim2.new(0, 0, 0, 10)
 	Built.TextColumn.Size = UDim2.new(1, -70, 0, 0)
-
 	local Readout = Text({
 		Parent           = Built.Mount,
 		Text             = "",
@@ -3201,7 +2366,6 @@ function Controls.Progress(Container, Options)
 		Size             = UDim2.new(1, 0, 0, 14),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
 	local Track = New("Frame", {
 		Parent                 = Built.Frame,
 		BackgroundColor3       = Theme.White,
@@ -3213,7 +2377,6 @@ function Controls.Progress(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local Fill = New("Frame", {
 		Parent           = Track,
 		BackgroundColor3 = Options.Color or Theme.White,
@@ -3222,54 +2385,40 @@ function Controls.Progress(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local function Render(Animate)
 		local Alpha = Maximum > 0 and Clamp(Value / Maximum, 0, 1) or 0
-
 		Readout.Text = Options.Format and Options.Format(Value, Maximum)
 			or string.format("%d%%", math.floor(Alpha * 100 + 0.5))
-
 		if Animate then
 			Tween(Fill, { Size = UDim2.new(Alpha, 0, 1, 0) }, "snap")
 		else
 			Fill.Size = UDim2.new(Alpha, 0, 1, 0)
 		end
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Render(true)
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Render(false)
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- A gauge with thresholds. Below Warn it is neutral, past Warn it is amber,
---- past Danger it is red — the only widget that changes colour on its own.
 function Controls.Meter(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or 0
 	local Maximum = Options.Max or 100
 	local Segments = Options.Segments or 24
-
 	local Built = Block(Container, Options, 18)
 	local Bars = {}
-
 	New("UIListLayout", {
 		Parent              = Built.Content,
 		Padding             = UDim.new(0, 3),
@@ -3277,7 +2426,6 @@ function Controls.Meter(Container, Options)
 		SortOrder           = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	for Index = 1, Segments do
 		Bars[Index] = New("Frame", {
 			Parent                 = Built.Content,
@@ -3288,52 +2436,38 @@ function Controls.Meter(Container, Options)
 			LayoutOrder            = Index,
 		})
 	end
-
 	local function Render()
 		local Alpha = Maximum > 0 and Clamp(Value / Maximum, 0, 1) or 0
 		local Lit = math.floor(Alpha * Segments + 0.5)
-
 		local Colour = Theme.White
-
 		if Options.Danger and Alpha >= Options.Danger then
 			Colour = Theme.Danger
 		elseif Options.Warn and Alpha >= Options.Warn then
 			Colour = Theme.Warn
 		end
-
 		for Index, Bar in Bars do
 			local On = Index <= Lit
-
 			Tween(Bar, {
 				BackgroundColor3       = On and Colour or Theme.White,
 				BackgroundTransparency = On and 0.05 or 0.85,
 			}, "hover")
 		end
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue)
 		Value = NewValue
 		Render()
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- Indeterminate. A hairline arc that never completes, for work with no
---- knowable progress.
 function Controls.Spinner(Container, Options)
 	local Handle = {}
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 18, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -36, 0, 0)
-
 	local Ring = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundTransparency = 1,
@@ -3341,14 +2475,9 @@ function Controls.Spinner(Container, Options)
 		Position               = UDim2.new(1, 0, 0.5, 0),
 		Size                   = UDim2.new(0, 16, 0, 16),
 	})
-
-	--- Four dots on a circle, fading in sequence. Cheaper and cleaner than
-	--- rotating a masked arc, and it reads correctly at this size.
 	local Dots = {}
-
 	for Index = 1, 8 do
 		local Angle = (Index - 1) / 8 * math.pi * 2
-
 		Dots[Index] = New("Frame", {
 			Parent                 = Ring,
 			BackgroundColor3       = Theme.White,
@@ -3361,59 +2490,35 @@ function Controls.Spinner(Container, Options)
 			Corner(1),
 		})
 	end
-
 	local Running = true
-
 	task.spawn(function()
 		local Head = 0
-
 		while Running and Ring.Parent do
 			Head = Head % 8 + 1
-
 			for Index, Dot in Dots do
 				local Distance = (Index - Head) % 8
 				Dot.BackgroundTransparency = math.min(0.9, Distance / 8 + 0.1)
 			end
-
 			task.wait(0.08)
 		end
 	end)
-
 	function Handle:Destroy()
 		Running = false
 		Built.Frame:Destroy()
 	end
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
-
---============================================================================
--- Charts
---
--- Drawn from rotated 1px frames. No canvas, no assets — the same hairline
--- the window is built from, just at an angle.
---============================================================================
-
---- Draws a polyline into a reusable pool of segments. Existing segments are
---- retargeted rather than rebuilt, so the spring path carries the line from
---- its old shape to its new one; only genuinely new segments fade in.
 local function Polyline(Parent, Pool, Points, Colour, Alpha, Thickness)
 	local Wanted = math.max(0, #Points - 1)
-
 	for Index = 1, Wanted do
 		local From, To = Points[Index], Points[Index + 1]
 		local Delta = To - From
 		local Length = Delta.Magnitude
-
 		local Position = UDim2.fromOffset((From.X + To.X) / 2, (From.Y + To.Y) / 2)
 		local Size = UDim2.fromOffset(Length + 1, Thickness or 1)
 		local Angle = math.deg(math.atan2(Delta.Y, Delta.X))
-
 		local Segment = Pool[Index]
-
 		if not Segment or not Segment.Parent then
 			Segment = New("Frame", {
 				Parent                 = Parent,
@@ -3425,101 +2530,72 @@ local function Polyline(Parent, Pool, Points, Colour, Alpha, Thickness)
 				Size                   = Size,
 				Rotation               = Angle,
 			})
-
 			Pool[Index] = Segment
 			Tween(Segment, { BackgroundTransparency = Alpha }, "fade")
 		else
 			Segment.BackgroundColor3 = Colour
-
-			--- Rotation is a plain number, so it springs like anything else —
-			--- but wrap it to the nearest equivalent angle first, or a line
-			--- crossing +/-180 spins the long way round.
 			local Current = Segment.Rotation
 			local Target = Angle
-
 			while Target - Current > 180 do
 				Target -= 360
 			end
-
 			while Current - Target > 180 do
 				Target += 360
 			end
-
 			Tween(Segment, { Position = Position, Size = Size, Rotation = Target }, "layout")
 			Tween(Segment, { BackgroundTransparency = Alpha }, "fade")
 		end
 	end
-
-	--- Segments the new data no longer needs fade out and go.
 	for Index = Wanted + 1, #Pool do
 		local Segment = Pool[Index]
-
 		if Segment then
 			Tween(Segment, { BackgroundTransparency = 1 }, "exit")
-
 			task.delay(MotionTime("exit"), function()
 				Segment:Destroy()
 			end)
-
 			Pool[Index] = nil
 		end
 	end
-
 	return Pool
 end
-
 local function ChartPoints(Values, Width, Height, Minimum, Maximum)
 	local Span = Maximum - Minimum
 	local Points = {}
-
 	for Index, Value in Values do
 		local X = #Values > 1 and (Index - 1) / (#Values - 1) * Width or 0
 		local Y = Height - (Span > 0 and (Value - Minimum) / Span or 0.5) * Height
 		Points[Index] = Vector2.new(X, Y)
 	end
-
 	return Points
 end
-
 local function Extent(Values, Options)
 	local Minimum = Options.Min
 	local Maximum = Options.Max
-
 	if not Minimum or not Maximum then
 		local Low, High = math.huge, -math.huge
-
 		for _, Value in Values do
 			Low = math.min(Low, Value)
 			High = math.max(High, Value)
 		end
-
 		if Low == math.huge then
 			Low, High = 0, 1
 		end
-
 		if Low == High then
 			Low, High = Low - 1, High + 1
 		end
-
 		Minimum = Minimum or Low
 		Maximum = Maximum or High
 	end
-
 	return Minimum, Maximum
 end
-
---- An inline chart, sized to sit where a control would.
 function Controls.Sparkline(Container, Options)
 	local Handle = {}
 	local Values = Options.Values or {}
-
 	local Width = Options.Width or 120
 	local Height = Options.Height or 22
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, Width, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -(Width + 18), 0, 0)
-
 	local Canvas = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundTransparency = 1,
@@ -3528,64 +2604,48 @@ function Controls.Sparkline(Container, Options)
 		Size                   = UDim2.new(0, Width, 0, Height),
 		ClipsDescendants       = true,
 	})
-
 	local Pool = {}
-
 	local function Render()
 		if #Values < 2 then
 			Polyline(Canvas, Pool, {}, Theme.White, 1, 1)
 			return
 		end
-
 		local Minimum, Maximum = Extent(Values, Options)
 		Polyline(Canvas, Pool, ChartPoints(Values, Width, Height, Minimum, Maximum),
 			Options.Color or Theme.White, 0.15, 1)
 	end
-
 	function Handle:Get()
 		return Values
 	end
-
 	function Handle:Set(NewValues)
 		Values = NewValues
 		Render()
 	end
-
 	function Handle:Push(Value, Limit)
 		table.insert(Values, Value)
-
 		while #Values > (Limit or Options.Limit or 40) do
 			table.remove(Values, 1)
 		end
-
 		Render()
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- The full-width version, with a baseline and min/max labels.
 function Controls.Graph(Container, Options)
 	local Handle = {}
 	local Values = Options.Values or {}
 	local Height = Options.Height or 96
-
 	local Built = Block(Container, Options, Height)
-
 	local Canvas = New("Frame", {
 		Parent                 = Built.Content,
 		BackgroundTransparency = 1,
 		Size                   = UDim2.new(1, -34, 1, 0),
 		ClipsDescendants       = true,
 	})
-
 	local Axis = New("Frame", {
 		Parent                 = Built.Content,
 		BackgroundTransparency = 1,
@@ -3593,7 +2653,6 @@ function Controls.Graph(Container, Options)
 		Position               = UDim2.new(1, 0, 0, 0),
 		Size                   = UDim2.new(0, 30, 1, 0),
 	})
-
 	local High = Text({
 		Parent           = Axis,
 		Text             = "",
@@ -3604,7 +2663,6 @@ function Controls.Graph(Container, Options)
 		Size             = UDim2.new(1, 0, 0, 10),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
 	local Low = Text({
 		Parent           = Axis,
 		Text             = "",
@@ -3617,8 +2675,6 @@ function Controls.Graph(Container, Options)
 		Size             = UDim2.new(1, 0, 0, 10),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
-	--- Baseline, drawn as the same hairline as everything else.
 	New("Frame", {
 		Parent                 = Canvas,
 		BackgroundColor3       = Theme.White,
@@ -3629,74 +2685,54 @@ function Controls.Graph(Container, Options)
 		Size                   = UDim2.new(1, 0, 0, 1),
 		ZIndex                 = 0,
 	})
-
 	local Line = New("Frame", {
 		Parent                 = Canvas,
 		BackgroundTransparency = 1,
 		Size                   = UDim2.new(1, 0, 1, 0),
 	})
-
 	local Pool = {}
-
 	local function Render()
 		if #Values < 2 then
 			Polyline(Line, Pool, {}, Theme.White, 1, 1)
 			return
 		end
-
 		local Minimum, Maximum = Extent(Values, Options)
-
 		SwapText(High, FormatNumber(Maximum, Options.Step or 1))
 		SwapText(Low, FormatNumber(Minimum, Options.Step or 1))
-
 		local Width = Canvas.AbsoluteSize.X
-
 		if Width <= 0 then
 			return
 		end
-
 		Polyline(Line, Pool, ChartPoints(Values, Width, Height, Minimum, Maximum),
 			Options.Color or Theme.White, 0.1, 1)
 	end
-
 	Canvas:GetPropertyChangedSignal("AbsoluteSize"):Connect(Render)
-
 	function Handle:Get()
 		return Values
 	end
-
 	function Handle:Set(NewValues)
 		Values = NewValues
 		Render()
 	end
-
 	function Handle:Push(Value, Limit)
 		table.insert(Values, Value)
-
 		while #Values > (Limit or Options.Limit or 60) do
 			table.remove(Values, 1)
 		end
-
 		Render()
 	end
-
 	task.defer(Render)
-
 	return BlockHandle(Built, Handle)
 end
-
---- N segments, click to set. Reads as a rating without importing a star.
 function Controls.Rating(Container, Options)
 	local Handle = {}
 	local Count = Options.Count or 5
 	local Value = Options.Default or 0
 	local Bars = {}
-
 	local Built = Row(Container, Options)
 	local Width = Count * 16
 	Built.Mount.Size = UDim2.new(0, Width, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -(Width + 18), 0, 0)
-
 	local Strip = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundTransparency = 1,
@@ -3704,7 +2740,6 @@ function Controls.Rating(Container, Options)
 		Position               = UDim2.new(1, 0, 0.5, 0),
 		Size                   = UDim2.new(0, Width, 0, 16),
 	})
-
 	New("UIListLayout", {
 		Parent            = Strip,
 		Padding           = UDim.new(0, 4),
@@ -3712,14 +2747,12 @@ function Controls.Rating(Container, Options)
 		SortOrder         = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 	})
-
 	local function Render()
 		for Index, Bar in Bars do
 			Tween(Bar, { Size = UDim2.new(0, 12, 0, Index <= Value and 14 or 8) }, "toss")
 			Tween(Bar, { BackgroundTransparency = Index <= Value and 0 or 0.82 }, "hover")
 		end
 	end
-
 	for Index = 1, Count do
 		local Bar = New("Frame", {
 			Parent                 = Strip,
@@ -3731,7 +2764,6 @@ function Controls.Rating(Container, Options)
 		}, {
 			Corner(1),
 		})
-
 		local Button = New("TextButton", {
 			Parent                 = Bar,
 			BackgroundTransparency = 1,
@@ -3740,46 +2772,30 @@ function Controls.Rating(Container, Options)
 			Position               = UDim2.new(0, -2, 0, -3),
 			ZIndex                 = 3,
 		})
-
 		Bars[Index] = Bar
-
 		Button.Activated:Connect(function()
 			Handle:Set(Index == Value and 0 or Index)
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = Clamp(NewValue, 0, Count)
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
-
---============================================================================
--- Composites
---============================================================================
-
---- A player row: headshot, name, and a dim second line.
 function Controls.Avatar(Container, Options)
 	local Handle = {}
-
 	local Frame = New("Frame", {
 		Name                   = "Avatar",
 		Parent                 = Container,
@@ -3792,7 +2808,6 @@ function Controls.Avatar(Container, Options)
 		Corner(Metrics.RowRadius),
 		Padding(0, 14),
 	})
-
 	New("UIListLayout", {
 		Parent            = Frame,
 		Padding           = UDim.new(0, 11),
@@ -3800,13 +2815,10 @@ function Controls.Avatar(Container, Options)
 		SortOrder         = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 	})
-
 	local Image = Options.Image
-
 	if not Image and Options.UserId then
 		Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=60&h=60", Options.UserId)
 	end
-
 	local Portrait = New("ImageLabel", {
 		Parent                 = Frame,
 		BackgroundColor3       = Theme.Black,
@@ -3818,7 +2830,6 @@ function Controls.Avatar(Container, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, 15)),
 	})
-
 	local Column = New("Frame", {
 		Parent                 = Frame,
 		BackgroundTransparency = 1,
@@ -3828,14 +2839,12 @@ function Controls.Avatar(Container, Options)
 	}, {
 		List(1),
 	})
-
 	local Name = Text({
 		Parent      = Column,
 		Text        = Options.Label or "",
 		TextSize    = Metrics.RowLabelSize - 1,
 		LayoutOrder = 1,
 	})
-
 	local Detail = Text({
 		Parent           = Column,
 		Text             = Options.Description or "",
@@ -3843,34 +2852,24 @@ function Controls.Avatar(Container, Options)
 		TextTransparency = Theme.TextSecondary,
 		LayoutOrder      = 2,
 	})
-
 	function Handle:Set(NewName, NewDetail)
 		Name.Text = NewName or Name.Text
 		Detail.Text = NewDetail or Detail.Text
 	end
-
 	function Handle:SetImage(NewImage)
 		Portrait.Image = NewImage
 	end
-
 	function Handle:Destroy()
 		Frame:Destroy()
 	end
-
 	Handle.Frame = Frame
-
 	return Handle
 end
-
---- Columns and rows. Headers are dim and small; values are monospace, because
---- a table is something you read down rather than across.
 function Controls.Table(Container, Options)
 	local Handle = {}
 	local Columns = Options.Columns or {}
 	local Rows = Options.Rows or {}
-
 	local Built = Block(Container, Options)
-
 	local function MakeRow(Cells, Header, Order)
 		local Line = New("Frame", {
 			Parent                 = Built.Content,
@@ -3878,17 +2877,14 @@ function Controls.Table(Container, Options)
 			Size                   = UDim2.new(1, 0, 0, Header and 18 or 20),
 			LayoutOrder            = Order,
 		})
-
 		New("UIListLayout", {
 			Parent            = Line,
 			FillDirection     = Enum.FillDirection.Horizontal,
 			SortOrder         = Enum.SortOrder.LayoutOrder,
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 		})
-
 		for Index, Column in Columns do
 			local Content = Cells[Index]
-
 			Text({
 				Parent           = Line,
 				Text             = Content == nil and "" or tostring(Content),
@@ -3903,39 +2899,28 @@ function Controls.Table(Container, Options)
 				LayoutOrder      = Index,
 			})
 		end
-
 		return Line
 	end
-
 	New("UIListLayout", {
 		Parent    = Built.Content,
 		Padding   = UDim.new(0, 2),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-
 	local Body = {}
-
 	local function Render()
 		for _, Line in Body do
 			Line:Destroy()
 		end
-
 		table.clear(Body)
-
 		for Index, Row in Rows do
 			table.insert(Body, MakeRow(Row, false, Index + 2))
 		end
 	end
-
 	local Names = {}
-
 	for Index, Column in Columns do
 		Names[Index] = Column.Label or Column[1] or ""
 	end
-
 	MakeRow(Names, true, 1)
-
-	--- A hairline under the header, matching the divider.
 	New("Frame", {
 		Parent                 = Built.Content,
 		BackgroundColor3       = Theme.White,
@@ -3944,34 +2929,25 @@ function Controls.Table(Container, Options)
 		Size                   = UDim2.new(1, 0, 0, 1),
 		LayoutOrder            = 2,
 	})
-
 	function Handle:Get()
 		return Rows
 	end
-
 	function Handle:Set(NewRows)
 		Rows = NewRows
 		Render()
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- Two or three numeric fields on one row, for positions and offsets.
 function Controls.Vector(Container, Options)
 	local Handle = {}
 	local Axes = Options.Axes or { "X", "Y", "Z" }
 	local Values = {}
 	local Fields = {}
-
 	for Index in Axes do
 		Values[Index] = (Options.Default and Options.Default[Index]) or 0
 	end
-
 	local Built = Block(Container, Options, 26)
-
 	New("UIListLayout", {
 		Parent            = Built.Content,
 		Padding           = UDim.new(0, 6),
@@ -3979,13 +2955,11 @@ function Controls.Vector(Container, Options)
 		SortOrder         = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 	})
-
 	local function Fire()
 		if Options.Callback then
 			task.spawn(Options.Callback, table.clone(Values))
 		end
 	end
-
 	for Index, Axis in Axes do
 		local Cell = New("Frame", {
 			Parent                 = Built.Content,
@@ -3998,7 +2972,6 @@ function Controls.Vector(Container, Options)
 			Corner(Metrics.ChipRadius),
 			Padding(0, 8),
 		})
-
 		Text({
 			Parent           = Cell,
 			Text             = Axis,
@@ -4009,7 +2982,6 @@ function Controls.Vector(Container, Options)
 			Size             = UDim2.new(0, 10, 1, 0),
 			AutomaticSize    = Enum.AutomaticSize.None,
 		})
-
 		local Field = New("TextBox", {
 			Parent                 = Cell,
 			BackgroundTransparency = 1,
@@ -4022,49 +2994,35 @@ function Controls.Vector(Container, Options)
 			Position               = UDim2.new(0, 12, 0, 0),
 			Size                   = UDim2.new(1, -12, 1, 0),
 		})
-
 		Fields[Index] = Field
-
 		Field.FocusLost:Connect(function()
 			local Parsed = tonumber(Field.Text)
-
 			if Parsed then
 				Values[Index] = Parsed
 				Fire()
 			end
-
 			Field.Text = FormatNumber(Values[Index], Options.Step or 0.01)
 		end)
 	end
-
 	function Handle:Get()
 		return table.clone(Values)
 	end
-
 	function Handle:Set(NewValues, Silent)
 		for Index in Axes do
 			Values[Index] = NewValues[Index] or Values[Index]
 			Fields[Index].Text = FormatNumber(Values[Index], Options.Step or 0.01)
 		end
-
 		if not Silent then
 			Fire()
 		end
 	end
-
 	return BlockHandle(Built, Handle)
 end
-
---- A swatch plus three channel tracks. Not a colour wheel — this is a
---- settings panel, and RGB is what a settings panel actually needs.
 function Controls.Color(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or Color3.fromRGB(255, 255, 255)
-
 	local Built = Block(Container, Options)
-
 	local Slot = Built.Aside or Built.Frame
-
 	local Swatch = New("Frame", {
 		Parent           = Slot,
 		BackgroundColor3 = Value,
@@ -4081,7 +3039,6 @@ function Controls.Color(Container, Options)
 			Thickness    = 1,
 		}),
 	})
-
 	local Readout = Text({
 		Parent           = Slot,
 		Text             = Hex(Value),
@@ -4095,22 +3052,18 @@ function Controls.Color(Container, Options)
 		AutomaticSize    = Enum.AutomaticSize.None,
 		ZIndex           = 2,
 	})
-
 	New("UIListLayout", {
 		Parent    = Built.Content,
 		Padding   = UDim.new(0, 7),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-
 	local Channels = { { "R", Value.R }, { "G", Value.G }, { "B", Value.B } }
 	local Fills = {}
-
 	local function Compose()
 		Value = Color3.new(Channels[1][2], Channels[2][2], Channels[3][2])
 		Swatch.BackgroundColor3 = Value
 		Readout.Text = Hex(Value)
 	end
-
 	for Index, Channel in Channels do
 		local Line = New("Frame", {
 			Parent                 = Built.Content,
@@ -4118,7 +3071,6 @@ function Controls.Color(Container, Options)
 			Size                   = UDim2.new(1, 0, 0, 14),
 			LayoutOrder            = Index,
 		})
-
 		Text({
 			Parent           = Line,
 			Text             = Channel[1],
@@ -4129,7 +3081,6 @@ function Controls.Color(Container, Options)
 			Size             = UDim2.new(0, 12, 1, 0),
 			AutomaticSize    = Enum.AutomaticSize.None,
 		})
-
 		local Track = New("Frame", {
 			Parent                 = Line,
 			BackgroundColor3       = Theme.White,
@@ -4141,7 +3092,6 @@ function Controls.Color(Container, Options)
 		}, {
 			Corner(2),
 		})
-
 		local Fill = New("Frame", {
 			Parent           = Track,
 			BackgroundColor3 = Index == 1 and Color3.fromRGB(255, 96, 96)
@@ -4152,9 +3102,7 @@ function Controls.Color(Container, Options)
 		}, {
 			Corner(2),
 		})
-
 		Fills[Index] = Fill
-
 		local Grab = New("TextButton", {
 			Parent                 = Line,
 			BackgroundTransparency = 1,
@@ -4163,25 +3111,19 @@ function Controls.Color(Container, Options)
 			Size                   = UDim2.new(1, -16, 1, 0),
 			ZIndex                 = 3,
 		})
-
 		local Dragging = false
-
 		local function Apply(X)
 			local Origin, Width = Track.AbsolutePosition.X, Track.AbsoluteSize.X
-
 			if Width <= 0 then
 				return
 			end
-
 			Channel[2] = Clamp((X - Origin) / Width, 0, 1)
 			Fill.Size = UDim2.new(Channel[2], 0, 1, 0)
 			Compose()
-
 			if Options.Callback then
 				task.spawn(Options.Callback, Value)
 			end
 		end
-
 		Grab.InputBegan:Connect(function(Input)
 			if Input.UserInputType == Enum.UserInputType.MouseButton1
 				or Input.UserInputType == Enum.UserInputType.Touch then
@@ -4189,14 +3131,12 @@ function Controls.Color(Container, Options)
 				Apply(Input.Position.X)
 			end
 		end)
-
 		Grab.InputEnded:Connect(function(Input)
 			if Input.UserInputType == Enum.UserInputType.MouseButton1
 				or Input.UserInputType == Enum.UserInputType.Touch then
 				Dragging = false
 			end
 		end)
-
 		Grab.InputChanged:Connect(function(Input)
 			if Dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement
 				or Input.UserInputType == Enum.UserInputType.Touch) then
@@ -4204,36 +3144,25 @@ function Controls.Color(Container, Options)
 			end
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Channels[1][2], Channels[2][2], Channels[3][2] = NewValue.R, NewValue.G, NewValue.B
-
 		for Index, Fill in Fills do
 			Fill.Size = UDim2.new(Channels[Index][2], 0, 1, 0)
 		end
-
 		Compose()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	Compose()
-
 	return BlockHandle(Built, Handle)
 end
-
---- A path trail. Segments are clickable; the last one is the current place
---- and is never dimmed.
 function Controls.Breadcrumb(Container, Options)
 	local Handle = {}
 	local Path = Options.Path or {}
-
 	local Frame = New("Frame", {
 		Name                   = "Breadcrumb",
 		Parent                 = Container,
@@ -4243,7 +3172,6 @@ function Controls.Breadcrumb(Container, Options)
 	}, {
 		Padding(0, 14),
 	})
-
 	New("UIListLayout", {
 		Parent            = Frame,
 		Padding           = UDim.new(0, 7),
@@ -4251,17 +3179,14 @@ function Controls.Breadcrumb(Container, Options)
 		SortOrder         = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 	})
-
 	local function Render()
 		for _, Child in Frame:GetChildren() do
 			if Child:IsA("GuiObject") then
 				Child:Destroy()
 			end
 		end
-
 		for Index, Part in Path do
 			local Last = Index == #Path
-
 			local Entry = New("TextButton", {
 				Parent                 = Frame,
 				BackgroundTransparency = 1,
@@ -4274,13 +3199,11 @@ function Controls.Breadcrumb(Container, Options)
 				Size                   = UDim2.new(0, 0, 1, 0),
 				LayoutOrder            = Index * 2,
 			})
-
 			Entry.Activated:Connect(function()
 				if Options.Callback then
 					task.spawn(Options.Callback, Part, Index)
 				end
 			end)
-
 			if not Last then
 				New("TextLabel", {
 					Parent                 = Frame,
@@ -4297,36 +3220,27 @@ function Controls.Breadcrumb(Container, Options)
 			end
 		end
 	end
-
 	function Handle:Get()
 		return Path
 	end
-
 	function Handle:Set(NewPath)
 		Path = NewPath
 		Render()
 	end
-
 	function Handle:Destroy()
 		Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Frame
-
 	return Handle
 end
-
---- Page N of M, with two chevrons. Arrows are drawn, like every other glyph.
 function Controls.Pagination(Container, Options)
 	local Handle = {}
 	local Page = Options.Default or 1
 	local Pages = Options.Pages or 1
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 110, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -128, 0, 0)
-
 	New("UIListLayout", {
 		Parent              = Built.Mount,
 		Padding             = UDim.new(0, 8),
@@ -4335,9 +3249,7 @@ function Controls.Pagination(Container, Options)
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	local Readout
-
 	local function Arrow(Order, Direction)
 		local Button = New("TextButton", {
 			Parent                 = Built.Mount,
@@ -4346,7 +3258,6 @@ function Controls.Pagination(Container, Options)
 			Size                   = UDim2.new(0, 18, 0, 18),
 			LayoutOrder            = Order,
 		})
-
 		for Index = 1, 2 do
 			New("Frame", {
 				Parent                 = Button,
@@ -4359,12 +3270,9 @@ function Controls.Pagination(Container, Options)
 				Rotation               = Direction * (Index == 1 and 45 or -45),
 			})
 		end
-
 		return Button
 	end
-
 	local Previous = Arrow(1, 1)
-
 	Readout = New("TextLabel", {
 		Parent                 = Built.Mount,
 		BackgroundTransparency = 1,
@@ -4376,66 +3284,45 @@ function Controls.Pagination(Container, Options)
 		Size                   = UDim2.new(0, 0, 1, 0),
 		LayoutOrder            = 2,
 	})
-
 	local Next = Arrow(3, -1)
-
 	local function Render()
 		SwapText(Readout, string.format("%d / %d", Page, Pages))
 	end
-
 	function Handle:Get()
 		return Page
 	end
-
 	function Handle:Set(NewPage, Silent)
 		Page = Clamp(math.floor(NewPage), 1, math.max(1, Pages))
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Page)
 		end
 	end
-
 	function Handle:SetPages(Count)
 		Pages = math.max(1, Count)
 		Page = Clamp(Page, 1, Pages)
 		Render()
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Previous.Activated:Connect(function() Handle:Set(Page - 1) end)
 	Next.Activated:Connect(function() Handle:Set(Page + 1) end)
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
-
---============================================================================
--- More widgets
---============================================================================
-
---- Shared drag plumbing: reports a 0..1 position within a frame for as long
---- as the pointer is held, and cleans its connections up on destroy.
 local function Draggable(Target, Surface, OnMove)
 	local Connections = {}
 	local Dragging = false
-
 	local function Report(Point)
 		local Origin = Surface.AbsolutePosition
 		local Size = Surface.AbsoluteSize
-
 		OnMove(
 			Size.X > 0 and Clamp((Point.X - Origin.X) / Size.X, 0, 1) or 0,
 			Size.Y > 0 and Clamp((Point.Y - Origin.Y) / Size.Y, 0, 1) or 0
 		)
 	end
-
 	table.insert(Connections, Target.InputBegan:Connect(function(Input)
 		if Input.UserInputType == Enum.UserInputType.MouseButton1
 			or Input.UserInputType == Enum.UserInputType.Touch then
@@ -4443,41 +3330,31 @@ local function Draggable(Target, Surface, OnMove)
 			Report(Input.Position)
 		end
 	end))
-
 	table.insert(Connections, UserInputService.InputChanged:Connect(function(Input)
 		if Dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement
 			or Input.UserInputType == Enum.UserInputType.Touch) then
 			Report(Input.Position)
 		end
 	end))
-
 	table.insert(Connections, UserInputService.InputEnded:Connect(function(Input)
 		if Input.UserInputType == Enum.UserInputType.MouseButton1
 			or Input.UserInputType == Enum.UserInputType.Touch then
 			Dragging = false
 		end
 	end))
-
 	return function()
 		for _, Connection in Connections do
 			Connection:Disconnect()
 		end
-
 		table.clear(Connections)
 	end
 end
-
---- A saturation/value field over a hue strip — the picker people expect,
---- with the library's own hairline markers instead of chunky handles.
 function Controls.ColorPicker(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or Color3.fromRGB(255, 255, 255)
 	local Hue, Saturation, Brightness = Value:ToHSV()
-
 	local Built = Block(Container, Options)
-
 	local Slot = Built.Aside or Built.Frame
-
 	local Swatch = New("Frame", {
 		Parent           = Slot,
 		BackgroundColor3 = Value,
@@ -4490,7 +3367,6 @@ function Controls.ColorPicker(Container, Options)
 		Corner(Metrics.ChipRadius),
 		New("UIStroke", { Color = Theme.White, Transparency = 0.7, Thickness = 1 }),
 	})
-
 	local Readout = Text({
 		Parent           = Slot,
 		Text             = Hex(Value),
@@ -4504,15 +3380,11 @@ function Controls.ColorPicker(Container, Options)
 		AutomaticSize    = Enum.AutomaticSize.None,
 		ZIndex           = 3,
 	})
-
 	New("UIListLayout", {
 		Parent    = Built.Content,
 		Padding   = UDim.new(0, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-
-	--- Saturation across, brightness down: a white-to-clear gradient over the
-	--- pure hue, then a clear-to-black gradient over that.
 	local Field = New("Frame", {
 		Parent           = Built.Content,
 		BackgroundColor3 = Color3.fromHSV(Hue, 1, 1),
@@ -4523,7 +3395,6 @@ function Controls.ColorPicker(Container, Options)
 	}, {
 		Corner(Metrics.ChipRadius),
 	})
-
 	New("Frame", {
 		Parent                 = Field,
 		BackgroundColor3       = Color3.new(1, 1, 1),
@@ -4539,7 +3410,6 @@ function Controls.ColorPicker(Container, Options)
 			}),
 		}),
 	})
-
 	New("Frame", {
 		Parent                 = Field,
 		BackgroundColor3       = Color3.new(0, 0, 0),
@@ -4556,8 +3426,6 @@ function Controls.ColorPicker(Container, Options)
 			}),
 		}),
 	})
-
-	--- A hairline crosshair rather than a puck, to stay in the language.
 	local Marker = New("Frame", {
 		Parent                 = Field,
 		BackgroundTransparency = 1,
@@ -4565,7 +3433,6 @@ function Controls.ColorPicker(Container, Options)
 		Size                   = UDim2.new(0, 13, 0, 13),
 		ZIndex                 = 5,
 	})
-
 	for Index = 1, 2 do
 		New("Frame", {
 			Parent           = Marker,
@@ -4577,7 +3444,6 @@ function Controls.ColorPicker(Container, Options)
 			ZIndex           = 5,
 		})
 	end
-
 	local Strip = New("Frame", {
 		Parent           = Built.Content,
 		BorderSizePixel  = 0,
@@ -4599,7 +3465,6 @@ function Controls.ColorPicker(Container, Options)
 			}),
 		}),
 	})
-
 	local HueMarker = New("Frame", {
 		Parent           = Strip,
 		BackgroundColor3 = Theme.White,
@@ -4608,64 +3473,48 @@ function Controls.ColorPicker(Container, Options)
 		Size             = UDim2.new(0, 2, 1, 0),
 		ZIndex           = 3,
 	})
-
 	local function Compose(Notify)
 		Value = Color3.fromHSV(Hue, Saturation, Brightness)
-
 		Field.BackgroundColor3 = Color3.fromHSV(Hue, 1, 1)
 		Swatch.BackgroundColor3 = Value
 		Readout.Text = Hex(Value)
-
 		Tween(Marker, { Position = UDim2.new(Saturation, 0, 1 - Brightness, 0) }, "drag")
 		Tween(HueMarker, { Position = UDim2.new(Hue, 0, 0, 0) }, "drag")
-
 		if Notify and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	local StopField = Draggable(Field, Field, function(X, Y)
 		Saturation, Brightness = X, 1 - Y
 		Compose(true)
 	end)
-
 	local StopStrip = Draggable(Strip, Strip, function(X)
 		Hue = X
 		Compose(true)
 	end)
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Hue, Saturation, Brightness = NewValue:ToHSV()
 		Compose(not Silent)
 	end
-
 	Compose(false)
-
 	local Result = BlockHandle(Built, Handle)
 	local BaseDestroy = Result.Destroy
-
 	function Result:Destroy()
 		StopField()
 		StopStrip()
 		BaseDestroy(self)
 	end
-
 	return Result
 end
-
---- A row of options with one sliding pill — the tab bar, shrunk to fit a row.
 function Controls.Segmented(Container, Options)
 	local Handle = {}
 	local Items = Options.Items or {}
 	local Value = Options.Default or Items[1]
 	local Buttons = {}
-
 	local Built = Block(Container, Options, 28)
-
 	local Track = New("Frame", {
 		Parent                 = Built.Content,
 		BackgroundColor3       = Theme.Black,
@@ -4676,7 +3525,6 @@ function Controls.Segmented(Container, Options)
 		Corner(math.min(Metrics.PillRadius, 14)),
 		Padding(3),
 	})
-
 	local Highlight = New("Frame", {
 		Parent           = Track,
 		BackgroundColor3 = Theme.White,
@@ -4686,38 +3534,32 @@ function Controls.Segmented(Container, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, 11)),
 	})
-
 	local Strip = New("Frame", {
 		Parent                 = Track,
 		BackgroundTransparency = 1,
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 2,
 	})
-
 	New("UIListLayout", {
 		Parent            = Strip,
 		FillDirection     = Enum.FillDirection.Horizontal,
 		SortOrder         = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 	})
-
 	local function Render()
 		for Index, Item in Items do
 			local On = Item == Value
-
 			if On then
 				Tween(Highlight, {
 					Position = UDim2.new((Index - 1) / #Items, 0, 0, 0),
 				}, "morph")
 			end
-
 			Tween(Buttons[Item], {
 				TextColor3       = On and Theme.Black or Theme.White,
 				TextTransparency = On and 0 or Theme.TextSecondary,
 			}, "hover")
 		end
 	end
-
 	for Index, Item in Items do
 		local Button = New("TextButton", {
 			Parent                 = Strip,
@@ -4731,49 +3573,36 @@ function Controls.Segmented(Container, Options)
 			LayoutOrder            = Index,
 			ZIndex                 = 3,
 		})
-
 		Buttons[Item] = Button
-
 		Button.Activated:Connect(function()
 			Handle:Set(Item)
 		end)
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue, Silent)
 		Value = NewValue
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Value)
 		end
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- Two thumbs on one track, for a minimum and a maximum.
 function Controls.Range(Container, Options)
 	local Handle = {}
-
 	local Minimum = Options.Min or 0
 	local Maximum = Options.Max or 100
 	local Step = Options.Step or 1
-
 	local Low = Clamp(Options.Low or Minimum, Minimum, Maximum)
 	local High = Clamp(Options.High or Maximum, Minimum, Maximum)
-
 	local Built = Row(Container, Options)
 	Built.Frame.Size = UDim2.new(1, 0, 0, Metrics.RowHeightTall + 14)
 	Built.TextColumn.AnchorPoint = Vector2.new(0, 0)
 	Built.TextColumn.Position = UDim2.new(0, 0, 0, 10)
 	Built.TextColumn.Size = UDim2.new(1, -100, 0, 0)
-
 	local Readout = Text({
 		Parent           = Built.Mount,
 		Text             = "",
@@ -4785,7 +3614,6 @@ function Controls.Range(Container, Options)
 		Size             = UDim2.new(0, 90, 0, 14),
 		AutomaticSize    = Enum.AutomaticSize.None,
 	})
-
 	local Track = New("Frame", {
 		Parent                 = Built.Frame,
 		BackgroundColor3       = Theme.White,
@@ -4798,7 +3626,6 @@ function Controls.Range(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local Span = New("Frame", {
 		Parent           = Track,
 		BackgroundColor3 = Theme.White,
@@ -4808,7 +3635,6 @@ function Controls.Range(Container, Options)
 	}, {
 		Corner(2),
 	})
-
 	local function Thumb()
 		return New("Frame", {
 			Parent           = Track,
@@ -4822,24 +3648,18 @@ function Controls.Range(Container, Options)
 			Corner(1),
 		})
 	end
-
 	local LowThumb, HighThumb = Thumb(), Thumb()
-
 	local function Fraction(Value)
 		return Maximum > Minimum and (Value - Minimum) / (Maximum - Minimum) or 0
 	end
-
 	local function Render(Role)
 		local A, B = Fraction(Low), Fraction(High)
-
 		Readout.Text = Options.Format and Options.Format(Low, High)
 			or string.format("%s – %s", FormatNumber(Low, Step), FormatNumber(High, Step))
-
 		Tween(Span, { Position = UDim2.new(A, 0, 0, 0), Size = UDim2.new(B - A, 0, 1, 0) }, Role or "snap")
 		Tween(LowThumb, { Position = UDim2.new(A, 0, 0.5, 0) }, Role or "snap")
 		Tween(HighThumb, { Position = UDim2.new(B, 0, 0.5, 0) }, Role or "snap")
 	end
-
 	local Grab = New("TextButton", {
 		Parent                 = Built.Frame,
 		BackgroundTransparency = 1,
@@ -4849,58 +3669,43 @@ function Controls.Range(Container, Options)
 		Size                   = UDim2.new(1, 0, 0, 22),
 		ZIndex                 = 4,
 	})
-
-	--- Whichever thumb is nearer the pointer is the one that moves.
 	local Stop = Draggable(Grab, Track, function(X)
 		local Value = Clamp(Quantise(Minimum + X * (Maximum - Minimum), Step), Minimum, Maximum)
-
 		if math.abs(Value - Low) <= math.abs(Value - High) then
 			Low = math.min(Value, High)
 		else
 			High = math.max(Value, Low)
 		end
-
 		Render("drag")
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Low, High)
 		end
 	end)
-
 	function Handle:Get()
 		return Low, High
 	end
-
 	function Handle:Set(NewLow, NewHigh, Silent)
 		Low = Clamp(Quantise(NewLow, Step), Minimum, Maximum)
 		High = Clamp(Quantise(NewHigh, Step), Low, Maximum)
 		Render()
-
 		if not Silent and Options.Callback then
 			task.spawn(Options.Callback, Low, High)
 		end
 	end
-
 	function Handle:Destroy()
 		Stop()
 		Built.Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- A bar chart. Where a Sparkline shows shape, this shows magnitude.
 function Controls.Bars(Container, Options)
 	local Handle = {}
 	local Values = Options.Values or {}
 	local Height = Options.Height or 64
 	local Bars = {}
-
 	local Built = Block(Container, Options, Height)
-
 	New("UIListLayout", {
 		Parent              = Built.Content,
 		Padding             = UDim.new(0, 3),
@@ -4908,15 +3713,12 @@ function Controls.Bars(Container, Options)
 		SortOrder           = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment   = Enum.VerticalAlignment.Bottom,
 	})
-
 	local function Render()
 		local Minimum, Maximum = Extent(Values, Options)
 		local Range = Maximum - Minimum
-
 		for Index, Value in Values do
 			local Alpha = Range > 0 and (Value - Minimum) / Range or 0.5
 			local Bar = Bars[Index]
-
 			if not Bar then
 				Bar = New("Frame", {
 					Parent                 = Built.Content,
@@ -4928,19 +3730,15 @@ function Controls.Bars(Container, Options)
 				}, {
 					Corner(1),
 				})
-
 				Bars[Index] = Bar
 				Tween(Bar, { BackgroundTransparency = 0.15 }, "fade")
 			end
-
 			Tween(Bar, {
 				Size = UDim2.new(1 / #Values, -3, 0, math.max(1, Alpha * Height)),
 			}, "toss")
 		end
-
 		for Index = #Values + 1, #Bars do
 			local Bar = Bars[Index]
-
 			if Bar then
 				Tween(Bar, { BackgroundTransparency = 1 }, "exit")
 				task.delay(MotionTime("exit"), function() Bar:Destroy() end)
@@ -4948,46 +3746,34 @@ function Controls.Bars(Container, Options)
 			end
 		end
 	end
-
 	function Handle:Get()
 		return Values
 	end
-
 	function Handle:Set(NewValues)
 		Values = NewValues
 		Render()
 	end
-
 	function Handle:Push(Value, Limit)
 		table.insert(Values, Value)
-
 		while #Values > (Limit or Options.Limit or 24) do
 			table.remove(Values, 1)
 		end
-
 		Render()
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
---- Circular progress, as ticks around a ring rather than a filled arc — the
---- hairline reading of a dial.
 function Controls.Ring(Container, Options)
 	local Handle = {}
 	local Value = Options.Default or 0
 	local Maximum = Options.Max or 1
 	local Count = Options.Ticks or 36
 	local Radius = Options.Radius or 26
-
 	local Built = Row(Container, Options)
 	local Box = Radius * 2 + 6
 	Built.Mount.Size = UDim2.new(0, Box, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -(Box + 18), 0, 0)
 	Built.Frame.Size = UDim2.new(1, 0, 0, math.max(Metrics.RowHeightTall, Box + 14))
-
 	local Dial = New("Frame", {
 		Parent                 = Built.Mount,
 		BackgroundTransparency = 1,
@@ -4995,13 +3781,9 @@ function Controls.Ring(Container, Options)
 		Position               = UDim2.new(1, 0, 0.5, 0),
 		Size                   = UDim2.new(0, Box, 0, Box),
 	})
-
 	local Ticks = {}
-
 	for Index = 1, Count do
-		--- Start at the top and run clockwise.
 		local Angle = (Index - 1) / Count * math.pi * 2 - math.pi / 2
-
 		Ticks[Index] = New("Frame", {
 			Parent                 = Dial,
 			BackgroundColor3       = Theme.White,
@@ -5013,7 +3795,6 @@ function Controls.Ring(Container, Options)
 			Rotation               = math.deg(Angle),
 		})
 	end
-
 	local Readout = Text({
 		Parent         = Dial,
 		Text           = "",
@@ -5024,46 +3805,34 @@ function Controls.Ring(Container, Options)
 		Size           = UDim2.new(1, 0, 1, 0),
 		AutomaticSize  = Enum.AutomaticSize.None,
 	})
-
 	local function Render()
 		local Alpha = Maximum > 0 and Clamp(Value / Maximum, 0, 1) or 0
 		local Lit = math.floor(Alpha * Count + 0.5)
-
 		SwapText(Readout, Options.Format and Options.Format(Value, Maximum)
 			or string.format("%d%%", math.floor(Alpha * 100 + 0.5)))
-
 		for Index, Tick in Ticks do
 			Tween(Tick, {
 				BackgroundTransparency = Index <= Lit and 0.05 or 0.85,
 			}, "hover")
 		end
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(NewValue)
 		Value = NewValue
 		Render()
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Render()
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
---- A message with a semantic left rule. The rule carries the severity, so the
---- text does not have to shout.
 function Controls.Alert(Container, Options)
 	local Handle = {}
 	local Colour = Options.Color or Theme.Info
-
 	local Frame = New("Frame", {
 		Name                   = "Alert",
 		Parent                 = Container,
@@ -5076,10 +3845,6 @@ function Controls.Alert(Container, Options)
 	}, {
 		Corner(Metrics.RowRadius),
 	})
-
-	--- The accent is pinned, not laid out. As a child of a list-laid-out frame
-	--- it was placed as a row, and its 1,0 scale height fed straight back into
-	--- the parent's AutomaticSize — which is what stretched it down the page.
 	New("Frame", {
 		Name             = "Accent",
 		Parent           = Frame,
@@ -5089,7 +3854,6 @@ function Controls.Alert(Container, Options)
 		Size             = UDim2.new(0, 2, 1, 0),
 		ZIndex           = 2,
 	})
-
 	local Column = New("Frame", {
 		Name                   = "Column",
 		Parent                 = Frame,
@@ -5101,7 +3865,6 @@ function Controls.Alert(Container, Options)
 		Padding(11, 0, 11, 0),
 		List(3),
 	})
-
 	local Title = Text({
 		Parent      = Column,
 		Text        = Options.Label or "",
@@ -5110,7 +3873,6 @@ function Controls.Alert(Container, Options)
 		TextColor3  = Colour,
 		LayoutOrder = 1,
 	})
-
 	local Body = Text({
 		Parent           = Column,
 		Text             = Options.Text or "",
@@ -5119,61 +3881,41 @@ function Controls.Alert(Container, Options)
 		TextWrapped      = true,
 		LayoutOrder      = 2,
 	})
-
 	Enter(Frame, "BackgroundTransparency", 0.94, "fade")
-
 	function Handle:Set(NewTitle, NewText)
 		if NewTitle then SwapText(Title, NewTitle) end
 		if NewText then SwapText(Body, NewText) end
 	end
-
 	function Handle:Destroy()
 		Frame:Destroy()
 	end
-
 	Handle.Frame = Frame
-
 	return Handle
 end
-
---- Nested, expandable rows. Indentation is the only structure — no guides,
---- no boxes.
 function Controls.Tree(Container, Options)
 	local Handle = {}
 	local Selected = nil
 	local Rows = {}
-
 	local Built = Block(Container, Options)
-
 	local Canvas, Lines = Layered(Built.Content, 1)
-
 	local Order = 0
-
 	local Mark = SlidingMark(Canvas)
-
 	local function Render()
 		local Chosen = nil
-
 		for _, Row in Rows do
 			local On = Row.Node == Selected
-
 			if On and Row.Entry.Visible then
 				Chosen = Row.Entry
 			end
-
 			Tween(Row.Label, { TextTransparency = On and Theme.TextPrimary or Theme.TextSecondary }, "hover")
 		end
-
 		Mark:To(Chosen, Canvas)
 	end
-
 	local function Build(Nodes, Depth, Parent)
 		for _, Node in Nodes do
 			Order += 1
-
 			local Children = Node.Children or {}
 			local Open = Node.Open == true
-
 			local Entry = New("TextButton", {
 				Parent                 = Lines,
 				BackgroundColor3       = Theme.White,
@@ -5184,11 +3926,8 @@ function Controls.Tree(Container, Options)
 				LayoutOrder            = Order,
 				Visible                = Parent == nil or Parent.Expanded,
 			})
-
 			local Indent = 10 + Depth * 14
-
 			local Twist = nil
-
 			if #Children > 0 then
 				Twist = New("Frame", {
 					Parent                 = Entry,
@@ -5197,7 +3936,6 @@ function Controls.Tree(Container, Options)
 					Position               = UDim2.new(0, Indent - 9, 0.5, 0),
 					Size                   = UDim2.new(0, 9, 0, 9),
 				})
-
 				for Index = 1, 2 do
 					New("Frame", {
 						Parent                 = Twist,
@@ -5213,7 +3951,6 @@ function Controls.Tree(Container, Options)
 					})
 				end
 			end
-
 			local Label = Text({
 				Parent           = Entry,
 				Text             = tostring(Node.Label or ""),
@@ -5224,7 +3961,6 @@ function Controls.Tree(Container, Options)
 				Size             = UDim2.new(1, -(Indent + 8), 1, 0),
 				AutomaticSize    = Enum.AutomaticSize.None,
 			})
-
 			local Record = {
 				Node     = Node,
 				Entry    = Entry,
@@ -5234,25 +3970,19 @@ function Controls.Tree(Container, Options)
 				Kids     = {},
 				Parent   = Parent,
 			}
-
 			table.insert(Rows, Record)
-
 			if Parent then
 				table.insert(Parent.Kids, Record)
 			end
-
 			Entry.MouseEnter:Connect(function()
 				Tween(Entry, { BackgroundTransparency = 0.94 }, "hover")
 			end)
-
 			Entry.MouseLeave:Connect(function()
 				Tween(Entry, { BackgroundTransparency = 1 }, "hover")
 			end)
-
 			Entry.Activated:Connect(function()
 				if #Children > 0 then
 					Record.Expanded = not Record.Expanded
-
 					if Twist then
 						for Index, Arm in Twist:GetChildren() do
 							if Arm:IsA("Frame") then
@@ -5264,62 +3994,40 @@ function Controls.Tree(Container, Options)
 							end
 						end
 					end
-
-					--- Collapsing hides the whole subtree, not just one level.
 					local function Apply(Row, Visible)
 						for _, Kid in Row.Kids do
 							Kid.Entry.Visible = Visible
 							Apply(Kid, Visible and Kid.Expanded)
 						end
 					end
-
 					Apply(Record, Record.Expanded)
 				end
-
 				Selected = Node
 				Render()
-
 				if Options.Callback then
 					task.spawn(Options.Callback, Node)
 				end
 			end)
-
 			Build(Children, Depth + 1, Record)
 		end
 	end
-
 	Build(Options.Nodes or {}, 0, nil)
-
 	function Handle:Get()
 		return Selected
 	end
-
 	function Handle:Set(Node)
 		Selected = Node
 		Render()
 	end
-
 	Render()
-
 	return BlockHandle(Built, Handle)
 end
-
-
---============================================================================
--- Media
---============================================================================
-
---- An image embed. Fit = "Contain" (default) letterboxes, "Cover" fills and
---- crops, "Stretch" distorts.
 function Controls.Image(Container, Options)
 	local Handle = {}
-
 	local Built = Block(Container, Options, Options.Height or 140)
-
 	local Fit = Options.Fit == "Cover" and Enum.ScaleType.Crop
 		or Options.Fit == "Stretch" and Enum.ScaleType.Stretch
 		or Enum.ScaleType.Fit
-
 	local Holder = New("Frame", {
 		Parent                 = Built.Content,
 		BackgroundColor3       = Theme.Black,
@@ -5330,7 +4038,6 @@ function Controls.Image(Container, Options)
 	}, {
 		Corner(Metrics.ChipRadius),
 	})
-
 	local Picture = New("ImageLabel", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -5339,12 +4046,9 @@ function Controls.Image(Container, Options)
 		ScaleType              = Fit,
 		Size                   = UDim2.new(1, 0, 1, 0),
 	})
-
-	--- Images arrive asynchronously; fading on IsLoaded avoids a hard pop.
 	local function Reveal()
 		Tween(Picture, { ImageTransparency = Options.Transparency or 0 }, "fade")
 	end
-
 	if Picture.IsLoaded then
 		task.defer(Reveal)
 	else
@@ -5353,13 +4057,9 @@ function Controls.Image(Container, Options)
 				Reveal()
 			end
 		end)
-
-		--- A dead asset never loads, so do not leave the frame blank forever.
 		task.delay(3, Reveal)
 	end
-
 	local Caption = nil
-
 	if Options.Caption then
 		Caption = Text({
 			Parent           = Built.Content,
@@ -5370,46 +4070,32 @@ function Controls.Image(Container, Options)
 			Position         = UDim2.new(0, 0, 1, 4),
 			Size             = UDim2.new(1, 0, 0, 0),
 		})
-
 		Built.Content.Size = UDim2.new(1, 0, 0, (Options.Height or 140) + 18)
 	end
-
 	function Handle:Set(NewImage)
 		Picture.ImageTransparency = 1
 		Picture.Image = NewImage
 		Reveal()
 	end
-
 	function Handle:SetCaption(NewCaption)
 		if Caption then
 			SwapText(Caption, NewCaption)
 		end
 	end
-
 	Handle.Picture = Picture
-
 	return BlockHandle(Built, Handle)
 end
-
---- A link row. Roblox cannot follow a URL silently, so this asks the player
---- through GuiService's own prompt; if that is unavailable the URL is shown
---- and the callback fires, which is all a client script can honestly do.
 function Controls.Link(Container, Options)
 	local Handle = {}
 	local Url = Options.Url or ""
-
 	local Built = Row(Container, Options)
 	Built.Mount.Size = UDim2.new(0, 74, 1, 0)
 	Built.TextColumn.Size = UDim2.new(1, -92, 0, 0)
-
-	--- The label carries the link styling, so it reads as a link before you
-	--- reach the button.
 	Built.Label.Text = string.format(
 		'<font color="%s"><u>%s</u></font>',
 		Hex(Options.Color or Theme.Info),
 		Options.Label or Url
 	)
-
 	local Pill = New("Frame", {
 		Parent           = Built.Mount,
 		BackgroundColor3 = Options.Color or Theme.Info,
@@ -5421,7 +4107,6 @@ function Controls.Link(Container, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, 13)),
 	})
-
 	New("TextLabel", {
 		Parent                 = Pill,
 		BackgroundTransparency = 1,
@@ -5431,7 +4116,6 @@ function Controls.Link(Container, Options)
 		TextSize               = Metrics.RowDescSize + 1,
 		Size                   = UDim2.new(1, 0, 1, 0),
 	})
-
 	local Button = New("TextButton", {
 		Parent                 = Built.Frame,
 		BackgroundTransparency = 1,
@@ -5439,74 +4123,48 @@ function Controls.Link(Container, Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 3,
 	})
-
 	Button.MouseEnter:Connect(function()
 		Tween(Pill, { BackgroundTransparency = 0.68 }, "hover")
 	end)
-
 	Button.MouseLeave:Connect(function()
 		Tween(Pill, { BackgroundTransparency = 0.82 }, "hover")
 	end)
-
 	function Handle:Get()
 		return Url
 	end
-
 	function Handle:Set(NewUrl)
 		Url = NewUrl
 	end
-
 	function Handle:Destroy()
 		Built.Frame:Destroy()
 	end
-
 	Button.Activated:Connect(function()
 		Tween(Pill, { BackgroundTransparency = 0.5 }, "press")
-
 		task.delay(MotionTime("press"), function()
 			Tween(Pill, { BackgroundTransparency = 0.82 }, "hover")
 		end)
-
 		local Opened = pcall(function()
 			game:GetService("GuiService"):OpenBrowserWindow(Url)
 		end)
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Url, Opened)
 		end
 	end)
-
 	Handle.Frame = Built.Frame
-
 	return Handle
 end
-
-
---- Mixes the control constructors onto any object that can name a mount
---- point. The object supplies _Mount() and _Order(); rows land in the mount
---- with a monotonically increasing LayoutOrder so declaration order is
---- display order.
 function Attach(Object)
 	for Name, Constructor in Controls do
 		Object[Name] = function(Self, Options)
 			Options = Options or {}
 			Options.LayoutOrder = Options.LayoutOrder or Self:_Order()
-
 			return Constructor(Self:_Mount(), Options, Self)
 		end
 	end
-
 	return Object
 end
-
-
---============================================================================
--- Sections, tabs and pages
---============================================================================
-
 local function MakeSection(Window, Title, Description)
 	local Section = {}
-
 	local Frame = New("Frame", {
 		Name                   = "Section",
 		Parent                 = Window.Body,
@@ -5518,14 +4176,12 @@ local function MakeSection(Window, Title, Description)
 		Padding(18, 14, 4, 14),
 		List(3),
 	})
-
 	Text({
 		Parent      = Frame,
 		Text        = Title or "",
 		TextSize    = Metrics.SectionTitleSize,
 		LayoutOrder = 1,
 	})
-
 	if Description and Description ~= "" then
 		Text({
 			Parent           = Frame,
@@ -5536,45 +4192,32 @@ local function MakeSection(Window, Title, Description)
 			LayoutOrder      = 2,
 		})
 	end
-
-	--- Rows added to a section land in the window body directly after it,
-	--- which is what the reference does — sections are headers, not boxes.
 	function Section:_Mount()
 		return Window.Body
 	end
-
 	function Section:_Order()
 		return Window:_Order()
 	end
-
 	function Section:_Overlay()
 		return Window:_Overlay()
 	end
-
 	function Section:_Register(Close)
 		Window:_Register(Close)
 	end
-
 	function Section:Tabs(Options)
 		return Window:_MakeTabs(Options)
 	end
-
 	function Section:Destroy()
 		Frame:Destroy()
 	end
-
 	Section.Frame = Frame
-
 	return Attach(Section)
 end
-
 local function MakeTabs(Window, Options)
 	Options = Options or {}
-
 	local Tabs = {}
 	local Pages = {}
 	local Active = nil
-
 	local Bar = New("Frame", {
 		Name                   = "Tabs",
 		Parent                 = Window.Body,
@@ -5584,9 +4227,6 @@ local function MakeTabs(Window, Options)
 	}, {
 		Padding(7, 14, 7, 14),
 	})
-
-	--- Tabs scroll sideways once they overrun the window. The reference never
-	--- has more than four, but the page count is the caller's business.
 	local Viewport = New("ScrollingFrame", {
 		Name                   = "Viewport",
 		Parent                 = Bar,
@@ -5599,9 +4239,6 @@ local function MakeTabs(Window, Options)
 		ScrollingDirection     = Enum.ScrollingDirection.X,
 		ClipsDescendants       = true,
 	})
-
-	--- Scale width so Align = "Center" still has something to centre within,
-	--- plus AutomaticSize.X so the strip grows past it when the tabs overflow.
 	local Strip = New("Frame", {
 		Name                   = "Strip",
 		Parent                 = Viewport,
@@ -5613,9 +4250,6 @@ local function MakeTabs(Window, Options)
 		List(Metrics.TabGap, Enum.FillDirection.Horizontal,
 			Options.Align == "Center" and Enum.HorizontalAlignment.Center or Enum.HorizontalAlignment.Left),
 	})
-
-	--- One shared white pill that slides between tabs, rather than a fill per
-	--- button. The movement is most of the character of the control.
 	local Highlight = New("Frame", {
 		Name             = "Highlight",
 		Parent           = Viewport,
@@ -5628,62 +4262,41 @@ local function MakeTabs(Window, Options)
 	}, {
 		Corner(math.min(Metrics.PillRadius, math.floor(Metrics.TabHeight / 2))),
 	})
-
-	--- A horizontal ScrollingFrame ignores the wheel, which makes an
-	--- overflowing tab bar unreachable on desktop. Map the wheel onto X, and
-	--- spring it rather than jumping.
 	local Scroller = SmoothScroll(Viewport, "X")
-
-	--- While the pointer is over the bar the wheel belongs to the bar. Without
-	--- this, running the tabs to their end hands the wheel to the page
-	--- underneath and the whole panel lurches.
 	Bar.MouseEnter:Connect(function()
 		if Window.Scroll then
 			Window.Scroll:SetEnabled(false)
 		end
 	end)
-
 	Bar.MouseLeave:Connect(function()
 		if Window.Scroll then
 			Window.Scroll:SetEnabled(true)
 		end
 	end)
-
-	--- Keeps the selected tab on screen when it is selected from code, or
-	--- when the wheel has left it off the edge.
 	local function Reveal(Button)
 		local Span = Viewport.AbsoluteCanvasSize.X - Viewport.AbsoluteSize.X
-
 		if Span <= 0 then
 			return
 		end
-
 		local Left = Button.AbsolutePosition.X - Strip.AbsolutePosition.X
 		local Right = Left + Button.AbsoluteSize.X
 		local Start = Viewport.CanvasPosition.X
 		local Finish = Start + Viewport.AbsoluteSize.X
-
 		local Target = Start
-
 		if Left < Start + 12 then
 			Target = Left - 12
 		elseif Right > Finish - 12 then
 			Target = Right - Viewport.AbsoluteSize.X + 12
 		end
-
 		Target = Clamp(Target, 0, Span)
-
 		if math.abs(Target - Start) > 0.5 then
 			Scroller:To(Vector2.new(Target, 0))
 		end
 	end
-
 	local function MoveHighlight(Button, Animate)
 		local Target = UDim2.new(0, Button.AbsolutePosition.X - Strip.AbsolutePosition.X, 0, 0)
 		local Size = UDim2.new(0, Button.AbsoluteSize.X, 0, Metrics.TabHeight)
-
 		Highlight.Visible = true
-
 		if Animate then
 			Tween(Highlight, { Position = Target, Size = Size }, "morph")
 		else
@@ -5691,33 +4304,26 @@ local function MakeTabs(Window, Options)
 			Highlight.Size = Size
 		end
 	end
-
 	function Tabs:Select(Name)
 		local Entry = Pages[Name]
-
 		if not Entry or Active == Name then
 			return
 		end
-
 		for OtherName, Other in Pages do
 			local Selected = OtherName == Name
-
 			if Selected then
 				Other.Page.Visible = true
 				Other.Page.GroupTransparency = 1
 				Other.Slide.PaddingTop = UDim.new(0, 12)
-
 				Tween(Other.Page, { GroupTransparency = 0 }, "expand")
 				Tween(Other.Slide, { PaddingTop = UDim.new(0, 0) }, "reveal")
 			else
 				Other.Page.Visible = false
 			end
-
 			Tween(Other.Label, {
 				TextColor3       = Selected and Theme.Black or Theme.White,
 				TextTransparency = Selected and 0 or Theme.TextSecondary,
 			}, "hover")
-
 			if Other.Icon then
 				Tween(Other.Icon, {
 					ImageColor3       = Selected and Theme.Black or Theme.White,
@@ -5725,32 +4331,22 @@ local function MakeTabs(Window, Options)
 				}, "hover")
 			end
 		end
-
-		--- Set the selected colours outright as well as tweening them: on the
-		--- very first selection the pill appears instantly, and a label that
-		--- is still white on white for the tween's duration reads as an empty
-		--- pill. The tween handles the *deselected* labels fading back.
 		Entry.Label.TextColor3 = Theme.Black
 		Entry.Label.TextTransparency = 0
-
 		if Entry.Icon then
 			Entry.Icon.ImageColor3 = Theme.Black
 			Entry.Icon.ImageTransparency = 0
 		end
-
 		MoveHighlight(Entry.Button, Active ~= nil)
 		Reveal(Entry.Button)
 		Active = Name
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Name)
 		end
 	end
-
 	function Tabs:Active()
 		return Active
 	end
-
 	function Tabs:Page(Name, Icon)
 		local Button = New("TextButton", {
 			Name                   = Name,
@@ -5764,7 +4360,6 @@ local function MakeTabs(Window, Options)
 		}, {
 			Padding(0, Metrics.TabPadding),
 		})
-
 		New("UIListLayout", {
 			Parent              = Button,
 			Padding             = UDim.new(0, 8),
@@ -5773,9 +4368,7 @@ local function MakeTabs(Window, Options)
 			HorizontalAlignment = Enum.HorizontalAlignment.Center,
 			VerticalAlignment   = Enum.VerticalAlignment.Center,
 		})
-
 		local IconLabel = nil
-
 		if Icon then
 			IconLabel = New("ImageLabel", {
 				Parent                 = Button,
@@ -5788,7 +4381,6 @@ local function MakeTabs(Window, Options)
 				ZIndex                 = 4,
 			})
 		end
-
 		local Label = New("TextLabel", {
 			Parent                 = Button,
 			BackgroundTransparency = 1,
@@ -5802,8 +4394,6 @@ local function MakeTabs(Window, Options)
 			LayoutOrder            = 2,
 			ZIndex                 = 4,
 		})
-
-		--- A CanvasGroup so the whole page crossfades as one object.
 		local Page = New("CanvasGroup", {
 			Name                   = "Page_" .. Name,
 			Parent                 = Window.Body,
@@ -5816,44 +4406,33 @@ local function MakeTabs(Window, Options)
 		}, {
 			List(Metrics.RowGap),
 		})
-
-		--- Animating this rather than Position, because the list layout owns
-		--- Position — the effect is the same small slide up.
 		local Slide = New("UIPadding", {
 			Parent     = Page,
 			PaddingTop = UDim.new(0, 0),
 		})
-
 		local Order = 0
-
 		local Handle = {
 			Frame  = Page,
 			Button = Button,
 		}
-
 		function Handle:_Mount()
 			return Page
 		end
-
 		function Handle:_Order()
 			Order += 1
 			return Order
 		end
-
 		function Handle:_Overlay()
 			return Window:_Overlay()
 		end
-
 		function Handle:_Register(Close)
 			Window:_Register(Close)
 		end
-
 		function Handle:Destroy()
 			Page:Destroy()
 			Button:Destroy()
 			Pages[Name] = nil
 		end
-
 		Pages[Name] = {
 			Page   = Page,
 			Slide  = Slide,
@@ -5861,13 +4440,9 @@ local function MakeTabs(Window, Options)
 			Label  = Label,
 			Icon   = IconLabel,
 		}
-
 		Button.Activated:Connect(function()
 			Tabs:Select(Name)
 		end)
-
-		--- First page added wins by default. AbsolutePosition is not valid
-		--- until the layout has run once, so defer the highlight.
 		if Active == nil then
 			task.defer(function()
 				if Active == nil then
@@ -5875,49 +4450,31 @@ local function MakeTabs(Window, Options)
 				end
 			end)
 		end
-
 		return Attach(Handle)
 	end
-
 	function Tabs:Destroy()
 		Bar:Destroy()
-
 		for _, Entry in Pages do
 			Entry.Page:Destroy()
 		end
 	end
-
 	Tabs.Frame = Bar
-
 	return Tabs
 end
-
-
---============================================================================
--- Window
---============================================================================
-
 local Kuik = {}
-
 Kuik.Theme   = Theme
 Kuik.Metrics = Metrics
 Kuik.Version = VERSION
-
 function Kuik.Window(Options)
 	Options = Options or {}
-
 	local Window = {}
 	local Order = 0
 	local Shown = false
 	local Blur = nil
 	local ParallaxConnection = nil
 	local KeyConnection = nil
-
 	local Width  = Options.Width or Metrics.WindowWidth
 	local Height = Options.Height or Metrics.WindowHeight
-
-	--- Backdrop: blur plus a wash so the scene reads as a bright, flat plate
-	--- behind the type. Both are owned by the window and torn down with it.
 	local Backdrop = New("Frame", {
 		Name                   = "Backdrop",
 		Parent                 = Screen(),
@@ -5928,10 +4485,8 @@ function Kuik.Window(Options)
 		Visible                = false,
 		ZIndex                 = 1,
 	})
-
 	local Wash = Options.Wash == nil and 0.55 or Options.Wash
 	local BlurSize = Options.Blur == nil and 22 or Options.Blur
-
 	local Root = New("Frame", {
 		Name                   = "Window",
 		Parent                 = Screen(),
@@ -5942,9 +4497,6 @@ function Kuik.Window(Options)
 		Visible                = false,
 		ZIndex                 = 2,
 	})
-
-	--- Grouping the whole window lets open/close be one transparency tween
-	--- instead of a walk over every descendant.
 	local Group = New("CanvasGroup", {
 		Name                   = "Group",
 		Parent                 = Root,
@@ -5953,7 +4505,6 @@ function Kuik.Window(Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		GroupTransparency      = 1,
 	})
-
 	local LeftRule = New("Frame", {
 		Name                   = "LeftRule",
 		Parent                 = Group,
@@ -5965,7 +4516,6 @@ function Kuik.Window(Options)
 		Size                   = UDim2.new(0, 1, 0, 0),
 		ZIndex                 = 3,
 	})
-
 	local RightRule = New("Frame", {
 		Name                   = "RightRule",
 		Parent                 = Group,
@@ -5977,7 +4527,6 @@ function Kuik.Window(Options)
 		Size                   = UDim2.new(0, 1, 0, 0),
 		ZIndex                 = 3,
 	})
-
 	local Content = New("Frame", {
 		Name                   = "Content",
 		Parent                 = Group,
@@ -5987,7 +4536,6 @@ function Kuik.Window(Options)
 	}, {
 		Padding(20, Metrics.WindowPadding - 14, 14, Metrics.WindowPadding - 14),
 	})
-
 	local Header = New("Frame", {
 		Name                   = "Header",
 		Parent                 = Content,
@@ -5998,14 +4546,12 @@ function Kuik.Window(Options)
 		Padding(0, 14),
 		List(1),
 	})
-
 	Text({
 		Parent      = Header,
 		Text        = Options.Title or "",
 		TextSize    = Metrics.TitleSize,
 		LayoutOrder = 1,
 	})
-
 	if Options.Subtitle then
 		Text({
 			Parent           = Header,
@@ -6015,7 +4561,6 @@ function Kuik.Window(Options)
 			LayoutOrder      = 2,
 		})
 	end
-
 	local Body = New("ScrollingFrame", {
 		Name                   = "Body",
 		Parent                 = Content,
@@ -6031,21 +4576,14 @@ function Kuik.Window(Options)
 	}, {
 		List(Metrics.RowGap),
 	})
-
 	Window.Scroll = SmoothScroll(Body, "Y")
-
-	--- The body starts below whatever height the header settled at.
 	local function Reflow()
 		local Top = Header.AbsoluteSize.Y + 18
 		Body.Position = UDim2.new(0, 0, 0, Top)
 		Body.Size = UDim2.new(1, 0, 1, -Top)
 	end
-
 	Header:GetPropertyChangedSignal("AbsoluteSize"):Connect(Reflow)
 	task.defer(Reflow)
-
-	--- Unlocks the cursor while the window is up without touching
-	--- UserInputService.MouseBehavior, which fights the game's own camera code.
 	local Modal = New("TextButton", {
 		Name                   = "Modal",
 		Parent                 = Root,
@@ -6055,10 +4593,6 @@ function Kuik.Window(Options)
 		Modal                  = Options.UnlockMouse ~= false,
 		Visible                = false,
 	})
-
-	--- Anything that must escape the body's clipping — dropdown menus, popovers
-	--- — lands here. It is a sibling of Content, so ClipsDescendants never
-	--- reaches it, and it sorts above everything the window draws.
 	local Overlay = New("Frame", {
 		Name                   = "Overlay",
 		Parent                 = Root,
@@ -6066,111 +4600,79 @@ function Kuik.Window(Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 40,
 	})
-
 	Window.Root     = Root
 	Window.Overlay  = Overlay
 	Window.Body     = Body
 	Window.Backdrop = Backdrop
 	Window.Group    = Group
-
 	function Window:_Order()
 		Order += 1
 		return Order
 	end
-
 	function Window:_Mount()
 		return Body
 	end
-
 	function Window:_Overlay()
 		return Overlay
 	end
-
-	--- Popovers register here so closing the window closes them too.
 	local Poppers = {}
-
-	--- Declared up here because Window:Close, defined below, closes over it.
 	local Children = {}
-
 	function Window:_Register(Close)
 		table.insert(Poppers, Close)
 	end
-
 	function Window:_ClosePopovers()
 		for _, Close in Poppers do
 			Close()
 		end
 	end
-
 	function Window:Section(Title, Description)
 		return MakeSection(self, Title, Description)
 	end
-
 	function Window:_MakeTabs(TabOptions)
 		return MakeTabs(self, TabOptions)
 	end
-
 	function Window:Tabs(TabOptions)
 		return MakeTabs(self, TabOptions)
 	end
-
 	function Window:IsOpen()
 		return Shown
 	end
-
-	--- Open/close deliberately avoids the name "Toggle": every container in
-	--- this library gets a :Toggle() row constructor mixed in, and a window
-	--- is a container.
 	function Window:Open()
 		if Shown then
 			return
 		end
-
 		Shown = true
 		Root.Visible = true
 		Modal.Visible = true
 		Backdrop.Visible = true
-
 		if BlurSize > 0 then
 			if not Blur then
 				Blur = New("BlurEffect", { Parent = Lighting, Size = 0, Name = "KuikBlur" })
 			end
-
 			Tween(Blur, { Size = BlurSize }, "enter")
 		end
-
 		Tween(Backdrop, { BackgroundTransparency = Wash }, "enter")
 		Tween(Group, { GroupTransparency = 0 }, "enter")
-
-		--- Rules draw outward from the middle. This is the open animation.
 		Tween(LeftRule, { Size = UDim2.new(0, 1, 1, 0) }, "reveal")
 		Tween(RightRule, { Size = UDim2.new(0, 1, 1, 0) }, "reveal")
 	end
-
 	function Window:Close()
 		if not Shown then
 			return
 		end
-
 		self:_ClosePopovers()
-
 		for _, Child in Children do
 			Child:Close()
 		end
-
 		Shown = false
 		Modal.Visible = false
-
 		if Blur then
 			Tween(Blur, { Size = 0 }, "exit")
 		end
-
 		Tween(Backdrop, { BackgroundTransparency = 1 }, "exit")
 		Tween(Group, { GroupTransparency = 1 }, "exit")
 		Tween(LeftRule, { Size = UDim2.new(0, 1, 0, 0) }, "exit")
-
 		local Handle = Tween(RightRule, { Size = UDim2.new(0, 1, 0, 0) }, "exit")
-
 		Handle.Completed:Once(function()
 			if not Shown then
 				Root.Visible = false
@@ -6178,7 +4680,6 @@ function Kuik.Window(Options)
 			end
 		end)
 	end
-
 	function Window:SetOpen(Open)
 		if Open then
 			self:Open()
@@ -6186,136 +4687,91 @@ function Kuik.Window(Options)
 			self:Close()
 		end
 	end
-
-	--- Aliases, for the muscle memory.
 	Window.Show = Window.Open
 	Window.Hide = Window.Close
-
-	--- Interface drifts against camera motion. Pixels, not degrees — the
-	--- amount is the maximum offset in either axis.
 	function Window:SetParallax(Amount)
 		if ParallaxConnection then
 			ParallaxConnection:Disconnect()
 			ParallaxConnection = nil
 		end
-
 		if not Amount or Amount <= 0 then
 			Root.Position = UDim2.new(0.5, 0, 0.5, 0)
 			return
 		end
-
 		local Offset = Vector2.zero
 		local LastYaw, LastPitch = nil, nil
-
 		ParallaxConnection = RunService.RenderStepped:Connect(function(Delta)
 			local Camera = workspace.CurrentCamera
-
 			if not Camera then
 				return
 			end
-
 			local Look = Camera.CFrame.LookVector
 			local Yaw = math.atan2(-Look.X, -Look.Z)
 			local Pitch = math.asin(Clamp(Look.Y, -1, 1))
-
 			if LastYaw then
 				local YawDelta = Yaw - LastYaw
-
-				--- Unwrap across the +/-pi seam so a spin does not snap the UI.
 				if YawDelta > math.pi then
 					YawDelta -= math.pi * 2
 				elseif YawDelta < -math.pi then
 					YawDelta += math.pi * 2
 				end
-
 				Offset += Vector2.new(YawDelta, Pitch - LastPitch) * Amount * 30
 			end
-
 			LastYaw, LastPitch = Yaw, Pitch
-
 			Offset = Offset:Lerp(Vector2.zero, math.min(1, Delta * 7))
 			Offset = Vector2.new(
 				Clamp(Offset.X, -Amount, Amount),
 				Clamp(Offset.Y, -Amount, Amount)
 			)
-
 			Root.Position = UDim2.new(0.5, Offset.X, 0.5, Offset.Y)
 		end)
 	end
-
-	--- A window owned by this one: it opens beside its parent, closes when the
-	--- parent closes, and dies with it. For a detail pane or an editor that
-	--- belongs to a setting rather than replacing the whole panel.
 	function Window:Child(ChildOptions)
 		ChildOptions = ChildOptions or {}
-
 		local Child = Kuik.Window({
 			Title       = ChildOptions.Title,
 			Subtitle    = ChildOptions.Subtitle,
 			Width       = ChildOptions.Width or 300,
 			Height      = ChildOptions.Height or 320,
-			--- The parent already owns the backdrop; a second blur would
-			--- double up and a second wash would darken twice.
 			Blur        = ChildOptions.Blur or 0,
 			Wash        = ChildOptions.Wash or 1,
 			UnlockMouse = false,
 		})
-
-		--- Riding the parent's Root means a deck's reposition and UIScale carry
-		--- through for free. Deliberately not inside Group: a CanvasGroup
-		--- rasterises to its own bounds, so anything hanging outside gets
-		--- sliced off.
 		Child.Root.Parent = Root
 		Child.Root.AnchorPoint = Vector2.new(0, 0.5)
 		Child.Root.Position = UDim2.new(1, ChildOptions.Offset or 34, 0.5, 0)
-
-		--- The parent owns the backdrop; the child's is dead weight.
 		if Child.Backdrop then
 			Child.Backdrop:Destroy()
 		end
-
 		Child.Owner = Window
-
 		table.insert(Children, Child)
-
 		if ChildOptions.Open then
 			Child:Open()
 		end
-
 		return Child
 	end
-
 	function Window:Children()
 		return Children
 	end
-
 	function Window:Destroy()
 		for _, Child in Children do
 			Child:Destroy()
 		end
-
 		table.clear(Children)
-
 		if ParallaxConnection then
 			ParallaxConnection:Disconnect()
 		end
-
 		if KeyConnection then
 			KeyConnection:Disconnect()
 		end
-
 		if Blur then
 			Blur:Destroy()
 		end
-
 		Root:Destroy()
 		Backdrop:Destroy()
 	end
-
-	--- Narrow viewports get the full width minus a margin.
 	local function Fit()
 		local Viewport = Screen().AbsoluteSize
-
 		if Viewport.X > 0 then
 			Root.Size = UDim2.new(
 				0, math.min(Width, Viewport.X - 40),
@@ -6323,10 +4779,8 @@ function Kuik.Window(Options)
 			)
 		end
 	end
-
 	Screen():GetPropertyChangedSignal("AbsoluteSize"):Connect(Fit)
 	task.defer(Fit)
-
 	if Options.Key then
 		KeyConnection = UserInputService.InputBegan:Connect(function(Input, Processed)
 			if not Processed and Input.KeyCode == Options.Key then
@@ -6334,34 +4788,18 @@ function Kuik.Window(Options)
 			end
 		end)
 	end
-
 	if Options.Parallax then
 		Window:SetParallax(Options.Parallax)
 	end
-
 	if Options.Open then
 		task.defer(function()
 			Window:Open()
 		end)
 	end
-
 	return Attach(Window)
 end
-
-
---============================================================================
--- HUD
---
--- The second half of the language, and the half that makes it recognisable:
--- bracketed announcements, a monospace status line welded to the bottom of
--- the screen, keycap hints stacked on the right, a bracketed log bottom-left.
--- None of it has a background.
---============================================================================
-
---- | text | — a centred announcement bracketed by two rules and nothing else.
 function Kuik.Toast(Message, Options)
 	Options = Options or {}
-
 	local Holder = New("Frame", {
 		Name                   = "Toast",
 		Parent                 = Screen(),
@@ -6372,7 +4810,6 @@ function Kuik.Toast(Message, Options)
 		AutomaticSize          = Enum.AutomaticSize.X,
 		ZIndex                 = 5,
 	})
-
 	New("UIListLayout", {
 		Parent              = Holder,
 		Padding             = UDim.new(0, 10),
@@ -6381,7 +4818,6 @@ function Kuik.Toast(Message, Options)
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	local function Bracket(Order)
 		return New("Frame", {
 			Parent                 = Holder,
@@ -6392,9 +4828,7 @@ function Kuik.Toast(Message, Options)
 			LayoutOrder            = Order,
 		})
 	end
-
 	Bracket(1)
-
 	local Label = New("TextLabel", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -6407,55 +4841,39 @@ function Kuik.Toast(Message, Options)
 		Size                   = UDim2.new(0, 0, 1, 0),
 		LayoutOrder            = 2,
 	})
-
 	Bracket(3)
-
 	Enter(Label, "TextTransparency", 0, "fade")
-
 	for _, Child in Holder:GetChildren() do
 		if Child:IsA("Frame") then
 			Enter(Child, "BackgroundTransparency", Theme.RuleTransparency, "fade")
 		end
 	end
-
 	local Handle = { Frame = Holder, Label = Label }
-
 	function Handle:Set(NewText)
 		Label.Text = NewText
 	end
-
 	function Handle:Destroy()
 		Holder:Destroy()
 	end
-
-	--- Duration = 0 means it stays until you destroy it, which is how the
-	--- reference does persistent state ("waiting for players").
 	if Options.Duration and Options.Duration > 0 then
 		task.delay(Options.Duration, function()
 			if Holder.Parent then
 				Tween(Label, { TextTransparency = 1 }, "fade")
-
 				for _, Child in Holder:GetChildren() do
 					if Child:IsA("Frame") then
 						Tween(Child, { BackgroundTransparency = 1 }, "fade")
 					end
 				end
-
 				task.delay(MotionTime("fade"), function()
 					Holder:Destroy()
 				end)
 			end
 		end)
 	end
-
 	return Handle
 end
-
---- The one component with a fill: a soft dark card that slides down from the
---- top edge. Used sparingly, for events rather than state.
 function Kuik.Notify(Options)
 	Options = Options or {}
-
 	local Card = New("Frame", {
 		Name                   = "Notify",
 		Parent                 = Screen(),
@@ -6470,7 +4888,6 @@ function Kuik.Notify(Options)
 		Corner(Metrics.CardRadius),
 		Padding(0, 14),
 	})
-
 	New("UIListLayout", {
 		Parent              = Card,
 		Padding             = UDim.new(0, 10),
@@ -6478,7 +4895,6 @@ function Kuik.Notify(Options)
 		SortOrder           = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	if Options.Image then
 		New("ImageLabel", {
 			Parent                 = Card,
@@ -6490,7 +4906,6 @@ function Kuik.Notify(Options)
 			Corner(math.min(Metrics.PillRadius, 12)),
 		})
 	end
-
 	New("TextLabel", {
 		Parent                 = Card,
 		BackgroundTransparency = 1,
@@ -6504,31 +4919,23 @@ function Kuik.Notify(Options)
 		Size                   = UDim2.new(0, 0, 1, 0),
 		LayoutOrder            = 2,
 	})
-
 	Tween(Card, { Position = UDim2.new(0.5, 0, 0, 62) }, "toss")
-
 	local Handle = { Frame = Card }
-
 	function Handle:Destroy()
 		Tween(Card, { Position = UDim2.new(0.5, 0, 0, 0) }, "exit")
 		task.delay(MotionTime("exit"), function()
 			Card:Destroy()
 		end)
 	end
-
 	task.delay(Options.Duration or 4, function()
 		if Card.Parent then
 			Handle:Destroy()
 		end
 	end)
-
 	return Handle
 end
-
---- Right-edge keybind stack: keycap, bold key, dim action.
 function Kuik.Hints(Options)
 	Options = Options or {}
-
 	local Holder = New("Frame", {
 		Name                   = "Hints",
 		Parent                 = Screen(),
@@ -6541,13 +4948,10 @@ function Kuik.Hints(Options)
 	}, {
 		List(9, Enum.FillDirection.Vertical, Enum.HorizontalAlignment.Right),
 	})
-
 	local Hints = { Frame = Holder }
 	local Order = 0
-
 	function Hints:Add(Key, Action)
 		Order += 1
-
 		local Line = New("Frame", {
 			Parent                 = Holder,
 			BackgroundTransparency = 1,
@@ -6555,7 +4959,6 @@ function Kuik.Hints(Options)
 			Size                   = UDim2.new(0, 0, 0, 14),
 			LayoutOrder            = Order,
 		})
-
 		New("UIListLayout", {
 			Parent              = Line,
 			Padding             = UDim.new(0, 7),
@@ -6563,9 +4966,7 @@ function Kuik.Hints(Options)
 			SortOrder           = Enum.SortOrder.LayoutOrder,
 			VerticalAlignment   = Enum.VerticalAlignment.Center,
 		})
-
 		Keycap(Line, 12).LayoutOrder = 1
-
 		local Label = New("TextLabel", {
 			Parent                 = Line,
 			BackgroundTransparency = 1,
@@ -6582,7 +4983,6 @@ function Kuik.Hints(Options)
 			Size                   = UDim2.new(0, 0, 1, 0),
 			LayoutOrder            = 2,
 		})
-
 		return {
 			Frame = Line,
 			Destroy = function()
@@ -6596,21 +4996,14 @@ function Kuik.Hints(Options)
 			end,
 		}
 	end
-
 	function Hints:Destroy()
 		Holder:Destroy()
 	end
-
 	return Hints
 end
-
---- Bottom-left feed, bracketed left and right, each line prefixed by the
---- three-bar glyph. RichText is on, so colour role names inline.
 function Kuik.Log(Options)
 	Options = Options or {}
-
 	local Limit = Options.Limit or 8
-
 	local Holder = New("Frame", {
 		Name                   = "Log",
 		Parent                 = Screen(),
@@ -6621,12 +5014,9 @@ function Kuik.Log(Options)
 		AutomaticSize          = Enum.AutomaticSize.Y,
 		ZIndex                 = 4,
 	})
-
 	Rule(Holder, Vector2.new(0, 0)).Position = UDim2.new(0, 0, 0, 0)
-
 	local Right = Rule(Holder, Vector2.new(1, 0))
 	Right.Position = UDim2.new(1, 0, 0, 0)
-
 	local Stack = New("Frame", {
 		Name                   = "Stack",
 		Parent                 = Holder,
@@ -6637,14 +5027,11 @@ function Kuik.Log(Options)
 		Padding(2, 12, 2, 12),
 		List(6),
 	})
-
 	local Log = { Frame = Holder }
 	local Entries = {}
 	local Order = 0
-
 	function Log:Push(Message)
 		Order += 1
-
 		local Line = New("Frame", {
 			Parent                 = Stack,
 			BackgroundTransparency = 1,
@@ -6652,10 +5039,8 @@ function Kuik.Log(Options)
 			AutomaticSize          = Enum.AutomaticSize.Y,
 			LayoutOrder            = Order,
 		})
-
 		local Mark = Glyph(Line, 11, Theme.TextTertiary)
 		Mark.Position = UDim2.new(0, 0, 0, 1)
-
 		local Label = Text({
 			Parent      = Line,
 			Text        = Message,
@@ -6664,42 +5049,29 @@ function Kuik.Log(Options)
 			Position    = UDim2.new(0, 18, 0, 0),
 			Size        = UDim2.new(1, -18, 0, 0),
 		})
-
 		table.insert(Entries, Line)
-
-		--- Oldest lines fall off the top rather than scrolling.
 		while #Entries > Limit do
 			local Oldest = table.remove(Entries, 1)
 			Oldest:Destroy()
 		end
-
 		Line.BackgroundTransparency = 1
 		Label.TextTransparency = 1
 		Tween(Label, { TextTransparency = Theme.TextPrimary }, "fade")
-
 		return Label
 	end
-
 	function Log:Clear()
 		for _, Line in Entries do
 			Line:Destroy()
 		end
-
 		table.clear(Entries)
 	end
-
 	function Log:Destroy()
 		Holder:Destroy()
 	end
-
 	return Log
 end
-
---- Top-right severity feed. Monospace, level token coloured, everything else
---- white. Lines expire on their own.
 function Kuik.Console(Options)
 	Options = Options or {}
-
 	local Levels = {
 		INFO    = Theme.Neutral,
 		SUCCESS = Theme.Good,
@@ -6707,7 +5079,6 @@ function Kuik.Console(Options)
 		ERROR   = Theme.Danger,
 		DEBUG   = Theme.Info,
 	}
-
 	local Holder = New("Frame", {
 		Name                   = "Console",
 		Parent                 = Screen(),
@@ -6720,20 +5091,16 @@ function Kuik.Console(Options)
 	}, {
 		List(3, Enum.FillDirection.Vertical, Enum.HorizontalAlignment.Right),
 	})
-
 	local Console = { Frame = Holder, Levels = Levels }
 	local Order = 0
-
 	function Console:Push(Level, Message, Duration)
 		Order += 1
-
 		local Colour = Levels[string.upper(Level or "INFO")] or Theme.Neutral
 		local Hex = string.format("#%02x%02x%02x",
 			math.floor(Colour.R * 255 + 0.5),
 			math.floor(Colour.G * 255 + 0.5),
 			math.floor(Colour.B * 255 + 0.5)
 		)
-
 		local Label = New("TextLabel", {
 			Parent                 = Holder,
 			BackgroundTransparency = 1,
@@ -6750,7 +5117,6 @@ function Kuik.Console(Options)
 			Size                   = UDim2.new(0, 0, 0, 0),
 			LayoutOrder            = Order,
 		})
-
 		task.delay(Duration or Options.Duration or 6, function()
 			if Label.Parent then
 				Tween(Label, { TextTransparency = 1 }, "fade")
@@ -6759,24 +5125,16 @@ function Kuik.Console(Options)
 				end)
 			end
 		end)
-
 		return Label
 	end
-
 	function Console:Destroy()
 		Holder:Destroy()
 	end
-
 	return Console
 end
-
---- The monospace status line welded to the bottom edge. Fields are separated
---- by wide gaps rather than delimiters.
 function Kuik.Watermark(Options)
 	Options = Options or {}
-
 	local Side = Options.Side or "Left"
-
 	local Holder = New("Frame", {
 		Name                   = "Watermark",
 		Parent                 = Screen(),
@@ -6787,7 +5145,6 @@ function Kuik.Watermark(Options)
 		AutomaticSize          = Enum.AutomaticSize.X,
 		ZIndex                 = 4,
 	})
-
 	New("UIListLayout", {
 		Parent              = Holder,
 		Padding             = UDim.new(0, 22),
@@ -6795,13 +5152,10 @@ function Kuik.Watermark(Options)
 		SortOrder           = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	local Watermark = { Frame = Holder }
 	local Labels = {}
-
 	local function Field(Index, Content, Colour)
 		local Label = Labels[Index]
-
 		if not Label then
 			Label = New("TextLabel", {
 				Parent                 = Holder,
@@ -6816,34 +5170,25 @@ function Kuik.Watermark(Options)
 				Size                   = UDim2.new(0, 0, 1, 0),
 				LayoutOrder            = Index,
 			})
-
 			Labels[Index] = Label
 		end
-
 		Label.Text = Content
-
 		if Colour then
 			Label.TextColor3 = Colour
 			Label.TextTransparency = 0
 		end
-
 		return Label
 	end
-
 	function Watermark:Set(Fields)
 		local Index = 0
-
 		if Options.Tag then
 			Index += 1
 			Field(Index, Options.Tag.Text or Options.Tag, Options.Tag.Color or Theme.Danger)
 		end
-
 		for _, Content in Fields do
 			Index += 1
 			Field(Index, tostring(Content))
 		end
-
-		--- Drop any fields left over from a longer previous state.
 		for Extra = Index + 1, #Labels do
 			if Labels[Extra] then
 				Labels[Extra]:Destroy()
@@ -6851,41 +5196,24 @@ function Kuik.Watermark(Options)
 			end
 		end
 	end
-
 	function Watermark:SetSide(NewSide)
 		Side = NewSide
 		Holder.AnchorPoint = Vector2.new(NewSide == "Right" and 1 or 0, 1)
 		Holder.Position = UDim2.new(NewSide == "Right" and 1 or 0, NewSide == "Right" and -14 or 14, 1, -6)
 	end
-
 	function Watermark:Destroy()
 		Holder:Destroy()
 	end
-
 	if Options.Fields then
 		Watermark:Set(Options.Fields)
 	end
-
 	return Watermark
 end
-
-
---============================================================================
--- More HUD
---
--- Lifted from the reference footage: the bracketed round clock, the rotated
--- weapon readout bottom-right, the killfeed, the objective line.
---============================================================================
-
---- The round clock: a small dial glyph and a monospace count, bracketed like
---- a Toast. Counts down by default; set Up = true to count the other way.
 function Kuik.Timer(Options)
 	Options = Options or {}
-
 	local Handle = {}
 	local Value = Options.Seconds or 0
 	local Running = false
-
 	local Holder = New("Frame", {
 		Name                   = "Timer",
 		Parent                 = Screen(),
@@ -6896,7 +5224,6 @@ function Kuik.Timer(Options)
 		AutomaticSize          = Enum.AutomaticSize.X,
 		ZIndex                 = 5,
 	})
-
 	New("UIListLayout", {
 		Parent              = Holder,
 		Padding             = UDim.new(0, 9),
@@ -6905,7 +5232,6 @@ function Kuik.Timer(Options)
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment   = Enum.VerticalAlignment.Center,
 	})
-
 	local function Bracket(Order)
 		return New("Frame", {
 			Parent                 = Holder,
@@ -6916,10 +5242,7 @@ function Kuik.Timer(Options)
 			LayoutOrder            = Order,
 		})
 	end
-
 	Bracket(1)
-
-	--- A dial: a ring with a hand. Drawn, like every glyph here.
 	local Dial = New("Frame", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -6929,7 +5252,6 @@ function Kuik.Timer(Options)
 		Corner(6),
 		New("UIStroke", { Color = Theme.White, Transparency = 0.3, Thickness = 1 }),
 	})
-
 	local Hand = New("Frame", {
 		Parent           = Dial,
 		BackgroundColor3 = Theme.White,
@@ -6938,7 +5260,6 @@ function Kuik.Timer(Options)
 		Position         = UDim2.new(0.5, 0, 0.5, 0),
 		Size             = UDim2.new(0, 1, 0, 4),
 	})
-
 	local Label = New("TextLabel", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -6950,88 +5271,63 @@ function Kuik.Timer(Options)
 		Size                   = UDim2.new(0, 0, 1, 0),
 		LayoutOrder            = 3,
 	})
-
 	Bracket(4)
-
 	local function Render()
 		local Whole = math.max(0, math.floor(Value))
 		Label.Text = string.format("%d:%02d", Whole // 60, Whole % 60)
-
-		--- The hand sweeps once a minute, which reads as "still running".
 		Hand.Rotation = (Whole % 60) / 60 * 360
 	end
-
 	function Handle:Get()
 		return Value
 	end
-
 	function Handle:Set(Seconds)
 		Value = Seconds
 		Render()
 	end
-
 	function Handle:Start()
 		if Running then
 			return
 		end
-
 		Running = true
-
 		task.spawn(function()
 			while Running and Holder.Parent do
 				task.wait(1)
-
 				if not Running then
 					break
 				end
-
 				Value += Options.Up and 1 or -1
-
 				if not Options.Up and Value <= 0 then
 					Value = 0
 					Running = false
 					Render()
-
 					if Options.Callback then
 						task.spawn(Options.Callback)
 					end
-
 					break
 				end
-
 				Render()
 			end
 		end)
 	end
-
 	function Handle:Stop()
 		Running = false
 	end
-
 	function Handle:Destroy()
 		Running = false
 		Holder:Destroy()
 	end
-
 	Handle.Frame = Holder
 	Render()
-
 	if Options.Autostart ~= false and Options.Seconds then
 		Handle:Start()
 	end
-
 	return Handle
 end
-
---- The weapon readout: a rotated name over a large count, bracketed either
---- side, pinned bottom-right.
 function Kuik.Ammo(Options)
 	Options = Options or {}
-
 	local Handle = {}
 	local Magazine = Options.Magazine or 0
 	local Reserve = Options.Reserve or 0
-
 	local Holder = New("Frame", {
 		Name                   = "Ammo",
 		Parent                 = Screen(),
@@ -7041,7 +5337,6 @@ function Kuik.Ammo(Options)
 		Size                   = UDim2.new(0, 130, 0, 44),
 		ZIndex                 = 5,
 	})
-
 	local function Bracket(Anchor)
 		return New("Frame", {
 			Parent                 = Holder,
@@ -7053,11 +5348,8 @@ function Kuik.Ammo(Options)
 			Size                   = UDim2.new(0, 1, 0.8, 0),
 		})
 	end
-
 	Bracket(0)
 	Bracket(1)
-
-	--- The name sits at a slight angle, exactly as in the reference.
 	local Name = New("TextLabel", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -7072,7 +5364,6 @@ function Kuik.Ammo(Options)
 		Size                   = UDim2.new(1, -20, 0, 14),
 		Rotation               = Options.Rotation or -8,
 	})
-
 	local Count = New("TextLabel", {
 		Parent                 = Holder,
 		BackgroundTransparency = 1,
@@ -7087,50 +5378,36 @@ function Kuik.Ammo(Options)
 		RichText               = true,
 		Rotation               = Options.Rotation or -8,
 	})
-
 	local function Render()
-		--- Empty magazines read red, which is the only colour on this element.
 		local Colour = Magazine == 0 and Theme.Danger
 			or Magazine <= math.max(1, math.floor((Options.Capacity or Magazine) * 0.25)) and Theme.Warn
 			or Theme.White
-
 		Count.Text = string.format('<font color="%s">%d</font><font transparency="0.55">/%d</font>',
 			Hex(Colour), Magazine, Reserve)
 	end
-
 	function Handle:Get()
 		return Magazine, Reserve
 	end
-
 	function Handle:Set(NewMagazine, NewReserve)
 		Magazine = NewMagazine or Magazine
 		Reserve = NewReserve or Reserve
 		Render()
 	end
-
 	function Handle:SetWeapon(Weapon)
 		SwapText(Name, Weapon)
 	end
-
 	function Handle:Destroy()
 		Holder:Destroy()
 	end
-
 	Handle.Frame = Holder
 	Render()
-
 	return Handle
 end
-
---- A hairline crosshair: four ticks around a gap, which can spread to show
---- spread and pulse on a hit.
 function Kuik.Crosshair(Options)
 	Options = Options or {}
-
 	local Handle = {}
 	local Gap = Options.Gap or 5
 	local Length = Options.Length or 6
-
 	local Holder = New("Frame", {
 		Name                   = "Crosshair",
 		Parent                 = Screen(),
@@ -7140,17 +5417,13 @@ function Kuik.Crosshair(Options)
 		Size                   = UDim2.new(0, 40, 0, 40),
 		ZIndex                 = 4,
 	})
-
 	local Ticks = {}
-
-	--- up, down, left, right
 	local Layout = {
 		{ 0.5, 0, 0.5, 1, 0, 1, 0, Length },
 		{ 0.5, 1, 0.5, 1, 0, 1, 0, Length },
 		{ 0, 0.5, 1, 0.5, 0, Length, 0, 1 },
 		{ 1, 0.5, 1, 0.5, 0, Length, 0, 1 },
 	}
-
 	for Index, Spec in Layout do
 		Ticks[Index] = New("Frame", {
 			Parent                 = Holder,
@@ -7162,52 +5435,37 @@ function Kuik.Crosshair(Options)
 			Size                   = UDim2.new(Spec[5], Spec[6], Spec[7], Spec[8]),
 		})
 	end
-
 	local function Render(Spread, Role)
 		local Reach = Gap + (Spread or 0)
-
 		Tween(Ticks[1], { Position = UDim2.new(0.5, 0, 0.5, -Reach) }, Role or "drag")
 		Tween(Ticks[2], { Position = UDim2.new(0.5, 0, 0.5, Reach) }, Role or "drag")
 		Tween(Ticks[3], { Position = UDim2.new(0.5, -Reach, 0.5, 0) }, Role or "drag")
 		Tween(Ticks[4], { Position = UDim2.new(0.5, Reach, 0.5, 0) }, Role or "drag")
 	end
-
 	function Handle:SetSpread(Spread)
 		Render(Spread)
 	end
-
-	--- A quick outward kick, for a hit marker.
 	function Handle:Hit(Colour)
 		for _, Tick in Ticks do
 			Tick.BackgroundColor3 = Colour or Theme.Danger
 			Tween(Tick, { BackgroundColor3 = Options.Color or Theme.White }, "fade")
 		end
-
 		Render(6, "toss")
 		task.delay(0.08, function() Render(0, "toss") end)
 	end
-
 	function Handle:SetVisible(Visible)
 		Holder.Visible = Visible
 	end
-
 	function Handle:Destroy()
 		Holder:Destroy()
 	end
-
 	Handle.Frame = Holder
 	Render(0, "instant")
-
 	return Handle
 end
-
---- A killfeed: right-aligned lines that expire, with the actor, the verb and
---- the target coloured independently.
 function Kuik.Killfeed(Options)
 	Options = Options or {}
-
 	local Limit = Options.Limit or 5
-
 	local Holder = New("Frame", {
 		Name                   = "Killfeed",
 		Parent                 = Screen(),
@@ -7220,14 +5478,11 @@ function Kuik.Killfeed(Options)
 	}, {
 		List(4, Enum.FillDirection.Vertical, Enum.HorizontalAlignment.Right),
 	})
-
 	local Feed = { Frame = Holder }
 	local Lines = {}
 	local Order = 0
-
 	function Feed:Push(Actor, Verb, Target, Colour)
 		Order += 1
-
 		local Line = New("TextLabel", {
 			Parent                 = Holder,
 			BackgroundTransparency = 1,
@@ -7246,56 +5501,40 @@ function Kuik.Killfeed(Options)
 			Size                   = UDim2.new(0, 0, 0, 16),
 			LayoutOrder            = Order,
 		})
-
 		Tween(Line, { TextTransparency = 0 }, "fade")
 		table.insert(Lines, Line)
-
 		while #Lines > Limit do
 			local Oldest = table.remove(Lines, 1)
 			Oldest:Destroy()
 		end
-
 		task.delay(Options.Duration or 7, function()
 			if Line.Parent then
 				Tween(Line, { TextTransparency = 1 }, "fade")
-
 				task.delay(MotionTime("fade"), function()
 					local At = table.find(Lines, Line)
-
 					if At then
 						table.remove(Lines, At)
 					end
-
 					Line:Destroy()
 				end)
 			end
 		end)
-
 		return Line
 	end
-
 	function Feed:Clear()
 		for _, Line in Lines do
 			Line:Destroy()
 		end
-
 		table.clear(Lines)
 	end
-
 	function Feed:Destroy()
 		Holder:Destroy()
 	end
-
 	return Feed
 end
-
---- The objective line: a label, a bracketed statement, and an optional
---- progress rule underneath.
 function Kuik.Objective(Options)
 	Options = Options or {}
-
 	local Handle = {}
-
 	local Holder = New("Frame", {
 		Name                   = "Objective",
 		Parent                 = Screen(),
@@ -7309,9 +5548,7 @@ function Kuik.Objective(Options)
 		Padding(0, 0, 0, 12),
 		List(3),
 	})
-
 	Rule(Holder, Vector2.new(0, 0)).Position = UDim2.new(0, 0, 0, 0)
-
 	local Label = Text({
 		Parent           = Holder,
 		Text             = Options.Label or "OBJECTIVE",
@@ -7320,7 +5557,6 @@ function Kuik.Objective(Options)
 		TextTransparency = Theme.TextTertiary,
 		LayoutOrder      = 1,
 	})
-
 	local Body = Text({
 		Parent      = Holder,
 		Text        = Options.Text or "",
@@ -7328,9 +5564,7 @@ function Kuik.Objective(Options)
 		TextWrapped = true,
 		LayoutOrder = 2,
 	})
-
 	local Track, Fill = nil, nil
-
 	if Options.Progress ~= nil then
 		Track = New("Frame", {
 			Parent                 = Holder,
@@ -7340,7 +5574,6 @@ function Kuik.Objective(Options)
 			Size                   = UDim2.new(1, 0, 0, 2),
 			LayoutOrder            = 3,
 		})
-
 		Fill = New("Frame", {
 			Parent           = Track,
 			BackgroundColor3 = Theme.White,
@@ -7348,39 +5581,28 @@ function Kuik.Objective(Options)
 			Size             = UDim2.new(Options.Progress, 0, 1, 0),
 		})
 	end
-
 	function Handle:Set(Text, Progress)
 		if Text then
 			SwapText(Body, Text)
 		end
-
 		if Progress and Fill then
 			Tween(Fill, { Size = UDim2.new(Clamp(Progress, 0, 1), 0, 1, 0) }, "snap")
 		end
 	end
-
 	function Handle:SetLabel(NewLabel)
 		SwapText(Label, NewLabel)
 	end
-
 	function Handle:Destroy()
 		Holder:Destroy()
 	end
-
 	Handle.Frame = Holder
-
 	return Handle
 end
-
---- Edge darkening. Four gradients rather than an image, so it ships assetless
---- and tints to whatever a moment calls for.
 function Kuik.Vignette(Options)
 	Options = Options or {}
-
 	local Handle = {}
 	local Depth = Options.Depth or 120
 	local Strength = Options.Strength or 0.55
-
 	local Holder = New("Frame", {
 		Name                   = "Vignette",
 		Parent                 = Screen(),
@@ -7389,16 +5611,13 @@ function Kuik.Vignette(Options)
 		ZIndex                 = 1,
 		Active                 = false,
 	})
-
 	local Edges = {}
-
 	local Sides = {
 		{ Anchor = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(1, 0, 0, Depth), Rotation = 90, Flip = true },
 		{ Anchor = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.new(1, 0, 0, Depth), Rotation = 90, Flip = false },
 		{ Anchor = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(0, Depth, 1, 0), Rotation = 0, Flip = true },
 		{ Anchor = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, Depth, 1, 0), Rotation = 0, Flip = false },
 	}
-
 	for Index, Side in Sides do
 		Edges[Index] = New("Frame", {
 			Parent                 = Holder,
@@ -7419,20 +5638,15 @@ function Kuik.Vignette(Options)
 			}),
 		})
 	end
-
 	function Handle:Set(NewStrength, Colour)
 		Strength = NewStrength
-
 		for _, Edge in Edges do
 			if Colour then
 				Edge.BackgroundColor3 = Colour
 			end
-
 			Tween(Edge, { BackgroundTransparency = NewStrength }, "fade")
 		end
 	end
-
-	--- A quick red pulse, for taking damage.
 	function Handle:Pulse(Colour, Peak)
 		for _, Edge in Edges do
 			Edge.BackgroundColor3 = Colour or Theme.Danger
@@ -7440,34 +5654,19 @@ function Kuik.Vignette(Options)
 			Tween(Edge, { BackgroundTransparency = Strength, BackgroundColor3 = Options.Color or Theme.Scrim }, "fade")
 		end
 	end
-
 	function Handle:Destroy()
 		Holder:Destroy()
 	end
-
 	Handle.Frame = Holder
-
 	return Handle
 end
-
-
---============================================================================
--- Popovers, prompts and decks
---============================================================================
-
---- A free-floating menu at a point on screen. The overlay-menu primitive the
---- Dropdown uses, exposed for context menus and anything else that needs to
---- appear over the interface rather than in it.
 function Kuik.Menu(Options)
 	Options = Options or {}
-
 	local Items = Options.Items or {}
 	local Width = Options.Width or 150
 	local EntryHeight = 24
 	local Open = false
-
 	local Layer = Options.Parent or Screen()
-
 	local Menu = New("Frame", {
 		Name                   = "Menu",
 		Parent                 = Layer,
@@ -7482,7 +5681,6 @@ function Kuik.Menu(Options)
 		Corner(Metrics.ChipRadius),
 		New("UIStroke", { Color = Theme.White, Transparency = 0.78, Thickness = 1 }),
 	})
-
 	local Inner = New("CanvasGroup", {
 		Parent                 = Menu,
 		BackgroundTransparency = 1,
@@ -7494,10 +5692,8 @@ function Kuik.Menu(Options)
 		Padding(4),
 		List(1),
 	})
-
 	local Handle = { Frame = Menu }
 	local Height = 8
-
 	for Index, Item in Items do
 		if Item.Separator then
 			New("Frame", {
@@ -7508,7 +5704,6 @@ function Kuik.Menu(Options)
 				Size                   = UDim2.new(1, 0, 0, 1),
 				LayoutOrder            = Index,
 			})
-
 			Height += 2
 		else
 			local Entry = New("TextButton", {
@@ -7523,7 +5718,6 @@ function Kuik.Menu(Options)
 			}, {
 				Corner(Metrics.RowRadius),
 			})
-
 			Text({
 				Parent           = Entry,
 				Text             = tostring(Item.Label or Item),
@@ -7536,7 +5730,6 @@ function Kuik.Menu(Options)
 				AutomaticSize    = Enum.AutomaticSize.None,
 				ZIndex           = 63,
 			})
-
 			if Item.Shortcut then
 				Text({
 					Parent           = Entry,
@@ -7552,122 +5745,89 @@ function Kuik.Menu(Options)
 					ZIndex           = 63,
 				})
 			end
-
 			Entry.MouseEnter:Connect(function()
 				Tween(Entry, { BackgroundTransparency = 0.9 }, "hover")
 			end)
-
 			Entry.MouseLeave:Connect(function()
 				Tween(Entry, { BackgroundTransparency = 1 }, "hover")
 			end)
-
 			Entry.Activated:Connect(function()
 				Handle:Close()
-
 				if Item.Callback then
 					task.spawn(Item.Callback, Item)
 				elseif Options.Callback then
 					task.spawn(Options.Callback, Item)
 				end
 			end)
-
 			Height += EntryHeight + 1
 		end
 	end
-
 	function Handle:Show(X, Y)
 		Open = true
-
 		local Origin = Layer.AbsolutePosition
 		local Viewport = Screen().AbsoluteSize
-
 		local Left = X - Origin.X
 		local Top = Y - Origin.Y
-
-		--- Flip rather than run off the edge.
 		if Viewport.X > 0 and X + Width > Viewport.X - 8 then
 			Left -= Width
 		end
-
 		if Viewport.Y > 0 and Y + Height > Viewport.Y - 8 then
 			Top -= Height
 		end
-
 		Menu.Position = UDim2.fromOffset(Left, Top)
 		Menu.Size = UDim2.new(0, Width, 0, 0)
 		Menu.Visible = true
 		Inner.GroupTransparency = 1
-
 		Tween(Menu, { Size = UDim2.new(0, Width, 0, Height) }, "reveal")
 		Tween(Inner, { GroupTransparency = 0 }, "fade")
 	end
-
 	function Handle:Close()
 		if not Open then
 			return
 		end
-
 		Open = false
-
 		Tween(Menu, { Size = UDim2.new(0, Width, 0, 0) }, "snap")
 		Tween(Inner, { GroupTransparency = 1 }, "exit")
-
 		task.delay(MotionTime("snap"), function()
 			if not Open then
 				Menu.Visible = false
 			end
 		end)
 	end
-
 	function Handle:IsOpen()
 		return Open
 	end
-
 	function Handle:Destroy()
 		Menu:Destroy()
 	end
-
-	--- Anywhere outside dismisses it.
 	local Outside = UserInputService.InputBegan:Connect(function(Input, Processed)
 		if not Open or Processed then
 			return
 		end
-
 		if Input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and Input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-
 		local Point = Input.Position
 		local Top, Size = Menu.AbsolutePosition, Menu.AbsoluteSize
-
 		if not (Point.X >= Top.X and Point.X <= Top.X + Size.X
 			and Point.Y >= Top.Y and Point.Y <= Top.Y + Size.Y) then
 			Handle:Close()
 		end
 	end)
-
 	local BaseDestroy = Handle.Destroy
-
 	function Handle:Destroy()
 		Outside:Disconnect()
 		BaseDestroy(self)
 	end
-
 	return Handle
 end
-
---- A modal question. Same two rules as a window, but centred, small, and it
---- takes the screen until it is answered.
 function Kuik.Prompt(Options)
 	Options = Options or {}
-
 	local Handle = {}
 	local Width = Options.Width or 340
 	local Answered = false
-
 	local Blur = nil
-
 	local Backdrop = New("Frame", {
 		Name                   = "PromptBackdrop",
 		Parent                 = Screen(),
@@ -7677,7 +5837,6 @@ function Kuik.Prompt(Options)
 		Size                   = UDim2.new(1, 0, 1, 0),
 		ZIndex                 = 70,
 	})
-
 	local Modal = New("TextButton", {
 		Parent                 = Backdrop,
 		BackgroundTransparency = 1,
@@ -7686,7 +5845,6 @@ function Kuik.Prompt(Options)
 		Modal                  = true,
 		ZIndex                 = 70,
 	})
-
 	local Root = New("Frame", {
 		Name                   = "Prompt",
 		Parent                 = Screen(),
@@ -7697,7 +5855,6 @@ function Kuik.Prompt(Options)
 		AutomaticSize          = Enum.AutomaticSize.Y,
 		ZIndex                 = 71,
 	})
-
 	local Group = New("CanvasGroup", {
 		Parent                 = Root,
 		BackgroundTransparency = 1,
@@ -7706,7 +5863,6 @@ function Kuik.Prompt(Options)
 		GroupTransparency      = 1,
 		ZIndex                 = 71,
 	})
-
 	local function Side(Anchor)
 		return New("Frame", {
 			Parent                 = Group,
@@ -7719,9 +5875,7 @@ function Kuik.Prompt(Options)
 			ZIndex                 = 72,
 		})
 	end
-
 	local LeftRule, RightRule = Side(0), Side(1)
-
 	local Column = New("Frame", {
 		Parent                 = Group,
 		BackgroundTransparency = 1,
@@ -7731,14 +5885,12 @@ function Kuik.Prompt(Options)
 		Padding(22, 26, 20, 26),
 		List(8),
 	})
-
 	Text({
 		Parent      = Column,
 		Text        = Options.Title or "",
 		TextSize    = Metrics.SectionTitleSize + 2,
 		LayoutOrder = 1,
 	})
-
 	if Options.Text then
 		Text({
 			Parent           = Column,
@@ -7749,14 +5901,12 @@ function Kuik.Prompt(Options)
 			LayoutOrder      = 2,
 		})
 	end
-
 	local Buttons = New("Frame", {
 		Parent                 = Column,
 		BackgroundTransparency = 1,
 		Size                   = UDim2.new(1, 0, 0, Metrics.TabHeight + 8),
 		LayoutOrder            = 3,
 	})
-
 	New("UIListLayout", {
 		Parent              = Buttons,
 		Padding             = UDim.new(0, 8),
@@ -7765,37 +5915,29 @@ function Kuik.Prompt(Options)
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
 		VerticalAlignment   = Enum.VerticalAlignment.Bottom,
 	})
-
 	local function Finish(Choice)
 		if Answered then
 			return
 		end
-
 		Answered = true
-
 		if Blur then
 			Tween(Blur, { Size = 0 }, "exit")
 		end
-
 		Tween(Backdrop, { BackgroundTransparency = 1 }, "exit")
 		Tween(Group, { GroupTransparency = 1 }, "exit")
 		Tween(LeftRule, { Size = UDim2.new(0, 1, 0, 0) }, "exit")
 		Tween(RightRule, { Size = UDim2.new(0, 1, 0, 0) }, "exit")
-
 		task.delay(MotionTime("exit") * 1.2, function()
 			if Blur then Blur:Destroy() end
 			Root:Destroy()
 			Backdrop:Destroy()
 		end)
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Choice)
 		end
 	end
-
 	for Index, Button in Options.Buttons or { { Label = "OK" } } do
 		local Primary = Button.Primary == true
-
 		local Pill = New("Frame", {
 			Parent                 = Buttons,
 			BackgroundColor3       = Primary and Theme.White or (Button.Color or Theme.White),
@@ -7808,7 +5950,6 @@ function Kuik.Prompt(Options)
 			Corner(math.min(Metrics.PillRadius, math.floor(Metrics.TabHeight / 2))),
 			Padding(0, 16),
 		})
-
 		New("TextLabel", {
 			Parent                 = Pill,
 			BackgroundTransparency = 1,
@@ -7820,7 +5961,6 @@ function Kuik.Prompt(Options)
 			Size                   = UDim2.new(0, 0, 1, 0),
 			ZIndex                 = 2,
 		})
-
 		local Hit = New("TextButton", {
 			Parent                 = Pill,
 			BackgroundTransparency = 1,
@@ -7828,89 +5968,59 @@ function Kuik.Prompt(Options)
 			Size                   = UDim2.new(1, 0, 1, 0),
 			ZIndex                 = 3,
 		})
-
 		Hit.MouseEnter:Connect(function()
 			Tween(Pill, { BackgroundTransparency = Primary and 0.15 or 0.78 }, "hover")
 		end)
-
 		Hit.MouseLeave:Connect(function()
 			Tween(Pill, { BackgroundTransparency = Primary and 0 or 0.88 }, "hover")
 		end)
-
 		Hit.Activated:Connect(function()
 			if Button.Callback then
 				task.spawn(Button.Callback)
 			end
-
 			Finish(Button.Value or Button.Label)
 		end)
 	end
-
 	function Handle:Close(Choice)
 		Finish(Choice)
 	end
-
 	Handle.Root = Root
-
-	--- Open.
 	if (Options.Blur == nil and 18 or Options.Blur) > 0 then
 		Blur = New("BlurEffect", {
 			Parent = Lighting,
 			Size   = 0,
 			Name   = "KuikBlur",
 		})
-
 		Tween(Blur, { Size = Options.Blur == nil and 18 or Options.Blur }, "enter")
 	end
-
 	LeftRule.Size = UDim2.new(0, 1, 0, 0)
 	RightRule.Size = UDim2.new(0, 1, 0, 0)
-
 	Tween(Backdrop, { BackgroundTransparency = Options.Wash == nil and 0.45 or Options.Wash }, "enter")
 	Tween(Group, { GroupTransparency = 0 }, "enter")
 	Tween(LeftRule, { Size = UDim2.new(0, 1, 1, 0) }, "reveal")
 	Tween(RightRule, { Size = UDim2.new(0, 1, 1, 0) }, "reveal")
-
-	--- Escape answers with nil, which is what a dismissal means.
 	local Key = UserInputService.InputBegan:Connect(function(Input, Processed)
 		if not Processed and Input.KeyCode == Enum.KeyCode.Escape and Options.Dismissable ~= false then
 			Finish(nil)
 		end
 	end)
-
 	task.delay(0.1, function()
 		if Answered then
 			Key:Disconnect()
 		end
 	end)
-
 	return Handle
 end
-
---- Arranges several windows as a horizontal card deck: the focused one sits
---- centre and full size, its neighbours shrink back and dim to either side,
---- and chevrons step the focus along. Modelled on a fighting game's character
---- select, turned on its side.
 function Kuik.Cards(Options)
 	Options = Options or {}
-
 	local Deck = {}
 	local Windows = {}
 	local Focus = 1
-
 	local Gap = Options.Gap or 110
 	local Shrink = Options.Scale or 0.82
 	local Dim = Options.Fade or 0.55
-
 	local Layer = Screen()
-
-	--- Where each chevron rests. Declared before Arrow because its hover
-	--- animation reads from it.
 	local Offsets = { [-1] = -300, [1] = 300 }
-
-	--- The chevrons sit just outside the focused card rather than pinned to the
-	--- screen edges — at the edges they read as page furniture instead of as
-	--- part of the deck, which is what made them look stranded.
 	local function Arrow(Direction)
 		local Button = New("TextButton", {
 			Name                   = Direction < 0 and "Previous" or "Next",
@@ -7923,9 +6033,7 @@ function Kuik.Cards(Options)
 			Visible                = false,
 			ZIndex                 = 20,
 		})
-
 		local Arms = {}
-
 		for Index = 1, 2 do
 			Arms[Index] = New("Frame", {
 				Parent                 = Button,
@@ -7940,8 +6048,6 @@ function Kuik.Cards(Options)
 				Corner(1),
 			})
 		end
-
-		--- A hairline bracket behind the chevron, the same motif as a Toast.
 		local Bar = New("Frame", {
 			Parent                 = Button,
 			BackgroundColor3       = Theme.White,
@@ -7951,28 +6057,19 @@ function Kuik.Cards(Options)
 			Position               = UDim2.new(0.5, Direction * 15, 0.5, 0),
 			Size                   = UDim2.new(0, 1, 0.62, 0),
 		})
-
 		local function Light(On)
 			for _, Arm in Arms do
 				Tween(Arm, { BackgroundTransparency = On and 0 or 0.35 }, "hover")
 			end
-
 			Tween(Bar, { BackgroundTransparency = On and 0.5 or 0.8 }, "hover")
-			--- Leans toward the direction it will take you.
 			Tween(Button, { Position = UDim2.new(0.5, Offsets[Direction] + (On and Direction * 4 or 0), 0.5, 0) }, "toss")
 		end
-
 		Button.MouseEnter:Connect(function() Light(true) end)
 		Button.MouseLeave:Connect(function() Light(false) end)
-
 		Button.Arms = Arms
-
 		return Button
 	end
-
 	local Previous, Next = Arrow(-1), Arrow(1)
-
-	--- Which card you are on, in the library's monospace voice.
 	local Counter = New("TextLabel", {
 		Name                   = "DeckCount",
 		Parent                 = Layer,
@@ -7988,24 +6085,18 @@ function Kuik.Cards(Options)
 		Visible                = false,
 		ZIndex                 = 20,
 	})
-
 	local function Layout(Animate)
 		for Index, Entry in Windows do
 			local Window = Entry.Window
 			local Offset = Index - Focus
 			local Centre = Offset == 0
-
 			local Step = Window.Root.AbsoluteSize.X * Shrink + Gap
 			local X = Offset * Step
-
-			--- Cards behind the focused one sort under it, nearest first.
 			Window.Root.ZIndex = 2 + (10 - math.min(math.abs(Offset), 9))
 			Window.Root.Visible = true
-
 			local Target = UDim2.new(0.5, X, 0.5, 0)
 			local Scale = Centre and 1 or Shrink
 			local Transparency = Centre and 0 or Dim
-
 			if Animate then
 				Tween(Window.Root, { Position = Target }, "layout")
 				Tween(Entry.Scale, { Scale = Scale }, "layout")
@@ -8015,13 +6106,8 @@ function Kuik.Cards(Options)
 				Entry.Scale.Scale = Scale
 				Window.Group.GroupTransparency = Transparency
 			end
-
-			--- Children ride along, so they dim along too — and a child hanging
-			--- off a card that is not focused overlaps its neighbour, so it
-			--- only shows on the focused one.
 			for _, Child in Window:Children() do
 				Child.Root.Visible = Centre and Child:IsOpen()
-
 				if Animate then
 					Tween(Child.Group, { GroupTransparency = Transparency }, "fade")
 				else
@@ -8029,39 +6115,26 @@ function Kuik.Cards(Options)
 				end
 			end
 		end
-
-		--- Park the chevrons just outside the focused card.
 		local Focused = Windows[Focus]
-
 		if Focused then
 			local Half = Focused.Window.Root.AbsoluteSize.X / 2 + 34
 			Offsets[-1] = -Half
 			Offsets[1] = Half
-
 			Tween(Previous, { Position = UDim2.new(0.5, -Half, 0.5, 0) }, Animate and "layout" or "instant")
 			Tween(Next, { Position = UDim2.new(0.5, Half, 0.5, 0) }, Animate and "layout" or "instant")
-
 			local Height = Focused.Window.Root.AbsoluteSize.Y / 2 + 26
 			Counter.Position = UDim2.new(0.5, 0, 0.5, Height)
 			SwapText(Counter, string.format("%d / %d", Focus, #Windows))
 		end
-
 		Previous.Visible = Focus > 1
 		Next.Visible = Focus < #Windows
 		Counter.Visible = #Windows > 1
 	end
-
 	function Deck:Add(Window)
-		--- The deck owns Position, so its own parallax has to stand down.
 		Window:SetParallax(0)
-
 		local Scale = Window.Root:FindFirstChildOfClass("UIScale")
 			or New("UIScale", { Parent = Window.Root, Scale = 1 })
-
 		table.insert(Windows, { Window = Window, Scale = Scale })
-
-		--- Clicking a card that is not focused focuses it rather than
-		--- interacting with it.
 		local Guard = New("TextButton", {
 			Name                   = "CardGuard",
 			Parent                 = Window.Root,
@@ -8071,21 +6144,15 @@ function Kuik.Cards(Options)
 			Visible                = false,
 			ZIndex                 = 50,
 		})
-
 		Windows[#Windows].Guard = Guard
-
 		local Index = #Windows
-
 		Guard.Activated:Connect(function()
 			Deck:Focus(Index)
 		end)
-
 		Layout(#Windows > 1)
 		Deck:Refresh()
-
 		return Window
 	end
-
 	function Deck:Refresh()
 		for Index, Entry in Windows do
 			if Entry.Guard then
@@ -8093,98 +6160,70 @@ function Kuik.Cards(Options)
 			end
 		end
 	end
-
 	function Deck:Focus(Index)
 		Focus = Clamp(Index, 1, math.max(1, #Windows))
 		Layout(true)
 		Deck:Refresh()
-
 		if Options.Callback then
 			task.spawn(Options.Callback, Focus, Windows[Focus] and Windows[Focus].Window)
 		end
 	end
-
 	function Deck:Next()
 		Deck:Focus(Focus + 1)
 	end
-
 	function Deck:Previous()
 		Deck:Focus(Focus - 1)
 	end
-
 	function Deck:Focused()
 		return Focus, Windows[Focus] and Windows[Focus].Window
 	end
-
 	function Deck:Count()
 		return #Windows
 	end
-
 	function Deck:Destroy()
 		Previous:Destroy()
 		Next:Destroy()
 		Counter:Destroy()
-
 		for _, Entry in Windows do
 			if Entry.Guard then
 				Entry.Guard:Destroy()
 			end
 		end
-
 		table.clear(Windows)
 	end
-
 	Previous.Activated:Connect(function() Deck:Previous() end)
 	Next.Activated:Connect(function() Deck:Next() end)
-
-	--- Left and right step the deck, so it works without aiming at a chevron.
 	local Key = UserInputService.InputBegan:Connect(function(Input, Processed)
 		if Processed or #Windows < 2 then
 			return
 		end
-
 		if Input.KeyCode == Enum.KeyCode.Left or Input.KeyCode == Enum.KeyCode.Q then
 			Deck:Previous()
 		elseif Input.KeyCode == Enum.KeyCode.Right or Input.KeyCode == Enum.KeyCode.E then
 			Deck:Next()
 		end
 	end)
-
 	local BaseDestroy = Deck.Destroy
-
 	function Deck:Destroy()
 		Key:Disconnect()
 		BaseDestroy(self)
 	end
-
 	return Deck
 end
-
-
---============================================================================
--- Escape hatches
---============================================================================
-
---- The ScreenGui everything parents to, in case you want to add your own.
 function Kuik.Screen()
 	return Screen()
 end
-
---- Tears down every Kuik element at once.
 function Kuik.Reset()
 	if ScreenGui then
 		ScreenGui:Destroy()
 		ScreenGui = nil
 	end
-
 	for _, Effect in Lighting:GetChildren() do
 		if Effect.Name == "KuikBlur" then
 			Effect:Destroy()
 		end
 	end
 end
-
 Kuik.New  = New
 Kuik.Tween = Tween
-
 return Kuik

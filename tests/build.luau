@@ -155,6 +155,37 @@ end)
 Dropdown:Set("Right")
 Check("dropdown set", Dropdown:Get() == "Right" and Fired.Dropdown == "Right")
 
+--- The entries must actually exist. A shadowed loop variable once made this
+--- build zero of them, and every other dropdown check still passed.
+local function CountButtons(Node)
+	local Total = 0
+
+	for _, Child in Node:GetChildren() do
+		if Child.ClassName == "TextButton" then
+			Total += 1
+		end
+
+		Total += CountButtons(Child)
+	end
+
+	return Total
+end
+
+local DropdownMenu = nil
+
+for _, Child in Shim.PlayerGui:GetChildren() do
+	if Child.Name == "Kuik" then
+		for _, Node in Child:GetDescendants() do
+			if Node.Name == "DropdownMenu" then
+				DropdownMenu = Node
+			end
+		end
+	end
+end
+
+Check("dropdown builds its entries", DropdownMenu ~= nil and CountButtons(DropdownMenu) == 2,
+	DropdownMenu and tostring(CountButtons(DropdownMenu)) or "no menu")
+
 local Keybind = Try("keybind", function()
 	return Visual:Keybind({ Label = "Open settings", Default = Enum.KeyCode.Tab })
 end)

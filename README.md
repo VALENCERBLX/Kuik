@@ -30,15 +30,27 @@ is a role. It is never decoration.
 
 ## Install
 
-Drop `init.luau` into `ReplicatedStorage` as a ModuleScript named `Kuik`.
+Drop `dist/Kuik.luau` into `ReplicatedStorage` as a ModuleScript named `Kuik`.
 Everything is client-side; require it from a `LocalScript`.
 
 ```lua
 local Kuik = require(game.ReplicatedStorage.Kuik)
 ```
 
-Single file, no dependencies, no assets — the keycap and log glyphs are drawn
-from primitives rather than imported.
+Single file, no dependencies, no assets — the keycap, chevron and log glyphs
+are all drawn from primitives rather than imported.
+
+`init.luau` is the readable source. `dist/Kuik.luau` is the same library with
+comments stripped, because Roblox refuses a `Source` assignment of 200,000
+characters or more and the commented source is past that. Rebuild it with:
+
+```
+python3 tools/build.py
+```
+
+It is not a minifier — identifiers, strings and statement layout are untouched,
+so a stack trace still points at recognisable code. The test suite runs against
+both.
 
 ## Quick start
 
