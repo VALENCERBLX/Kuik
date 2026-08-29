@@ -1,0 +1,10 @@
+# wally install dirs
+/Packages/
+/ServerPackages/
+/DevPackages/
+
+# place files
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxm

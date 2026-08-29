@@ -1,0 +1,12 @@
+[package]
+name = "kr3ative/kuik"
+version = "1.0.0"
+description = "A Roblox UI library in the hairline-rule style: no panels, two vertical rules, springs from Lume."
+license = "MIT"
+authors = ["kr3ative"]
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+# None. Kuik ships its own motion system — the tween path and the spring
+# solver both live in the single module — so consuming it pulls in one thing.
