@@ -1,377 +1,700 @@
 # Kuik
 
-A Roblox UI library in the style of NO REMORSE / the `MAR_*` engine.
+A Roblox UI library in the NO REMORSE house style: rules and type, almost no
+fill, square by default, and everything moving on springs.
 
-The premise: **there is no panel.** A window is two 1px vertical hairline rules
-with nothing between them, floating over the game. No fill, no border, no corner
-radius, no accent colour. Hierarchy is carried entirely by typography and
-negative space, and the only bright objects on screen are the controls.
-
-Colour is reserved for meaning — red is a warning, amber is a log level, blue
-is a role. It is never decoration.
-
-```
- │  Settings                                  │
- │  Manage your preferences                   │
- │                                            │
- │  Categories                                │
- │  Choose a category to configure.           │
- │                                            │
- │   ◉ Camera  (Visual)  ✛ State   ♪ Audio    │
- │                                            │
- │  Show UI/UX                       ▄▄▄██    │
- │  Show and configure interface elements.    │
- │                                            │
- │  Watermark Side                       L    │
- │  Choose which side displays the watermark. │
- │  ▌─────────────────────────────────────    │
- │                                            │
-```
-
-## Install
-
-Drop `dist/Kuik.luau` into `ReplicatedStorage` as a ModuleScript named `Kuik`.
-Everything is client-side; require it from a `LocalScript`.
+Two rules down the sides of a window, hairlines between things, white type at
+four transparencies, and one accent colour you choose. No panels, no shadows,
+no gradients except where a gradient is the point.
 
 ```lua
-local Kuik = require(game.ReplicatedStorage.Kuik)
-```
+local Kuik = require(ReplicatedStorage.Kuik)
 
-Single file, no dependencies, no assets — the keycap, chevron and log glyphs
-are all drawn from primitives rather than imported.
-
-`init.luau` is the readable source. `dist/Kuik.luau` is the same library with
-comments stripped, because Roblox refuses a `Source` assignment of 200,000
-characters or more and the commented source is past that. Rebuild it with:
-
-```
-python3 tools/build.py
-```
-
-It is not a minifier — identifiers, strings and statement layout are untouched,
-so a stack trace still points at recognisable code. The test suite runs against
-both.
-
-## Quick start
-
-```lua
 local Window = Kuik.Window({
     Title    = "Settings",
-    Subtitle = "Manage your preferences",
-    Key      = Enum.KeyCode.Tab,
+    Subtitle = "right shift to close",
+    Key      = Enum.KeyCode.RightShift,
+    Open     = true,
 })
 
-local Categories = Window:Section("Categories", "Choose a category to configure.")
-local Tabs       = Categories:Tabs()
+local Tabs = Window:Tabs()
+local Audio = Tabs:Page("Audio")
 
-local Visual = Tabs:Page("Visual")
-
-Visual:Toggle({
-    Label       = "Show UI/UX",
-    Description = "Show and configure interface elements.",
-    Default     = true,
-    Callback    = function(On) print("interface:", On) end,
-})
-
-Visual:Slider({
-    Label       = "Field of View",
-    Description = "Camera field of view.",
-    Min = 60, Max = 120, Step = 1, Default = 100,
-    Callback = function(Value) workspace.CurrentCamera.FieldOfView = Value end,
+Audio:Slider({
+    Label    = "Master",
+    Min      = 0,
+    Max      = 100,
+    Default  = 80,
+    Callback = function(Value)
+        SoundService.Volume = Value / 100
+    end,
 })
 ```
 
-`demo/Demo.client.luau` rebuilds the reference settings panel.
-`demo/Showcase.client.luau` exercises every option, method and handle in the
-library across twelve tabs.
+---
 
-## Window
+## Installing
+
+Kuik is a folder of ModuleScripts. Put `src/` into your place as a
+ModuleScript named `Kuik` with the rest of the modules inside it — Rojo does
+this from the `default.project.json` in the repo:
+
+```
+Kuik/            (ModuleScript, from src/init.luau)
+    Theme
+    Motion
+    Util
+    Screen
+    Scroll
+    Shared
+    Parts
+    Layout
+    Window
+    Hud
+    Layers
+    Controls/    (ModuleScript, from src/Controls/init.luau)
+        Inputs
+        Data
+        Colour
+        Media
+        Content
+```
+
+`tools/build.py` also emits two other shapes:
+
+- `dist/Kuik.luau` — the whole library bundled into one file behind a tiny
+  require shim, for dropping into a place by hand.
+- `dist/modules.json` — every module keyed by its require path, for a script
+  that builds the folder itself.
+
+The bundle is past Roblox's 200,000 character limit for assigning `Source`
+from a script, which is exactly why the library is a folder. Installing by
+hand, through Rojo, or from `modules.json` all work; assigning the bundle to a
+single `Source` from inside Studio does not.
+
+---
+
+## The shape of it
+
+Everything is a **container**, and every container has the same methods. A
+window, a page, a section, an accordion, a group, a column — you can put any
+control in any of them:
 
 ```lua
-Kuik.Window({
-    Title       = "Settings",
-    Subtitle    = "Manage your preferences",
-    Key         = Enum.KeyCode.Tab,  -- bind to open/close
-    Open        = false,             -- open on construction
-    Width       = 460,
-    Height      = 500,
-    Blur        = 22,                -- backdrop BlurEffect size, 0 to disable
-    Wash        = 0.88,              -- backdrop white wash transparency
-    Parallax    = 5,                 -- max drift in px, 0 to disable
-    UnlockMouse = true,
-})
+local Page = Window:Tabs():Page("General")
+local Section = Page:Section("Audio", "Anything that makes noise")
+local Fold = Section:Accordion({ Label = "Advanced" })
+
+Fold:Slider({ Label = "Reverb", Max = 1, Step = 0.05 })
 ```
 
-| Method | Does |
+Every control returns a **handle**. Handles have `Get`, `Set`, `Destroy`, and
+the shared behaviour every one of them has:
+
+```lua
+local Toggle = Section:Toggle({ Label = "Enabled", Default = true })
+
+Toggle:Get()                  --> true
+Toggle:Set(false)             -- fires the callback
+Toggle:Set(false, true)       -- silent
+Toggle:SetVisible(false)
+Toggle:SetDisabled(true)
+Toggle:SetLabel("Renamed")
+Toggle:SetDescription("...")
+Toggle:Destroy()
+```
+
+---
+
+## Windows are not only dialogs
+
+A window is a rectangle you can put controls in. Strip the chrome and it is a
+HUD element:
+
+```lua
+local Vitals = Kuik.Panel({
+    Dock      = "BottomLeft",
+    Position  = UDim2.new(0, 24, 1, -24),
+    Width     = 240,
+    Height    = 74,
+    Draggable = true,
+})
+
+local Health = Vitals:Progress({ Label = "Health", Flat = true, Default = 1 })
+```
+
+`Kuik.Panel` is `Kuik.Window` with no header, no side rules, no backdrop, no
+blur, no scroller, and no mouse unlock. Every one of those is an option on a
+plain window too.
+
+Windows can be moved, sized, docked, dragged, scaled, faded and stacked:
+
+| Call | Does |
 | --- | --- |
-| `:Open()` / `:Close()` | Show or hide, with the hairline rules drawing out from the centre |
-| `:SetOpen(Boolean)` | Either, from a value |
-| `:IsOpen()` | Current state |
-| `:Section(Title, Description)` | A header block; returns a Section |
-| `:Tabs(Options)` | A pill tab row; returns a Tabs |
-| `:SetParallax(Amount)` | Drift the interface against camera motion, in px |
-| `:Destroy()` | Tears down the window, its backdrop and its blur |
+| `Window:SetPosition(UDim2, Animate)` | moves it; springs unless `Animate` is `false` |
+| `Window:SetSize(W, H, Animate)` | resizes it |
+| `Window:Dock("TopRight", 20)` | parks it against an edge or a corner |
+| `Window:Nudge(X, Y)` | moves it relative to where it is |
+| `Window:SetAnchor(Vector2)` | changes what the position means |
+| `Window:SetScale(N)` / `SetOpacity(N)` | uniform scale, group fade |
+| `Window:SetDraggable(true, Grip)` | drag by the header, or by a grip you pass |
+| `Window:SetResizable(true)` | a grip in the bottom right corner |
+| `Window:SetParallax(12)` | lags behind the camera and springs back |
+| `Window:BringToFront()` | raises it above its siblings |
+| `Window:SetTitle(Title, Subtitle)` | retitles it |
+| `Window:SetFill(Colour, Alpha, Animate)` | gives it a ground |
+| `Window:Destroy(Animate)` | immediate, or shrinks and fades out first |
+| `Window:Child({ ... })` | a sub window parked beside it |
+| `Window:GoTo("Audio")` | selects a page by name |
+| `Window:Reveal(Handle)` | scrolls to a control and flashes it |
 
-`:Show()` and `:Hide()` are aliases for `:Open()` and `:Close()`.
+Docks are `Center`, `Top`, `Bottom`, `Left`, `Right`, `TopLeft`, `TopRight`,
+`BottomLeft`, `BottomRight`.
 
-> **Why not `Window:Toggle()`?** Every container in this library gets a
-> `:Toggle()` **row constructor** mixed in, and a window is a container. Using
-> that name for open/close silently shadows the control — pressing the bind key
-> would build a toggle row instead of opening the menu. Hence `:Open()`.
+Window variants: `Rules` (the default, two hairlines down the sides), `Card`
+(filled, rounded, stroked), `Bare` / `Panel` (nothing at all).
 
-## Sections, tabs and pages
-
-Sections are headers, not boxes. Rows added to a section land in the window
-body directly beneath it, in declaration order.
+**Overlays take a variant too.** A menu, popover, sheet, drawer or prompt is a
+dark plate by default — that is what a game usually wants over its world — but
+it can be the house style instead:
 
 ```lua
-local Section = Window:Section("Categories", "Choose a category to configure.")
-local Tabs    = Section:Tabs({ Align = "Left", Callback = function(Name) end })
-
-local Camera = Tabs:Page("Camera", "rbxassetid://0")  -- icon optional
-local Visual = Tabs:Page("Visual")
-
-Tabs:Select("Visual")
-Tabs:Active()  --> "Visual"
+Kuik.Menu({ Items = …, Variant = "Rules" })   -- two hairlines, almost no fill
+Kuik.Prompt({ Title = …, Variant = "Card" })  -- a prompt is Rules by default
+Kuik.Metrics.OverlayVariant = "Rules"         -- or change all of them at once
 ```
 
-The first page added becomes active. Selection moves one shared white pill
-between tabs rather than filling each button — the movement is most of the
-character of the control.
+A window does not leak input. Most of one is transparent frames, and a plain
+`Frame` does not take input — so without help a click on the empty part of a
+window sails straight through to whatever is underneath it, and so does hover.
+Every window therefore carries a `Shield`: a button filling the panel, below
+everything else in it, whose only job is to swallow what lands on the window.
+Pass `Shield = false` if you genuinely want a window you can click through.
+
+---
 
 ## Controls
 
-Available on a Window, a Section or a Page. Every one takes `Label` and
-optional `Description`, and returns a handle with `:Get()`, `:Set(Value,
-Silent)` and `:Destroy()`. `:Set(Value, true)` updates the visual without
-firing the callback, which is what you want when restoring saved settings.
+Every name here is a method on every container.
 
-| Control | Extra options |
-| --- | --- |
-| **Input** | |
-| `:Toggle` | `Default` |
-| `:Checkbox` | `Default` — for when a switch would overstate the change |
-| `:Slider` | `Min`, `Max`, `Step`, `Default`, `Format` |
-| `:Range` | `Min`, `Max`, `Step`, `Low`, `High`, `Format` — two thumbs on one track |
-| `:Stepper` | `Min`, `Max`, `Step`, `Default` — click the chip's left or right half |
-| `:Dropdown` | `Items`, `Default`, `Width`, `Visible` — unrolls on the Y axis, on the window overlay |
-| `:Segmented` | `Items`, `Default` — the tab bar shrunk into a row |
-| `:Radio` | `Items`, `Default` — exclusive, hairline ring with a filled centre |
-| `:Chips` | `Items`, `Default` (a table) — multi-select, `:Get()` returns a table |
-| `:List` | `Items`, `Default`, `Height` — scrollable; selection is a left hairline |
-| `:Keybind` | `Default` (a `KeyCode`); Escape cancels rebinding |
-| `:Input` | `Default`, `Placeholder` |
-| `:Vector` | `Axes`, `Default` (a table), `Step` — X/Y/Z fields on one row |
-| `:Color` | `Default` (a `Color3`) — swatch plus three channel tracks |
-| `:ColorPicker` | `Default`, `Height` — saturation/value field over a hue strip |
-| `:Rating` | `Count`, `Default` — clicking the current value clears it |
-| `:Pagination` | `Pages`, `Default`; also `:SetPages(N)` |
-| `:Button` | `Action` (pill text), `Callback` |
-| **Readout** | |
-| `:Badge` | `Text`, `Color` — a semantic tag |
-| `:Status` | `Value` — monospace key/value, the watermark's voice |
-| `:Progress` | `Default`, `Max`, `Color`, `Format` |
-| `:Meter` | `Default`, `Max`, `Segments`, `Warn`, `Danger` — picks its own colour past a threshold |
-| `:Ring` | `Default`, `Max`, `Ticks`, `Radius`, `Format` — circular progress as ticks |
-| `:Alert` | `Label`, `Text`, `Color` — a message with a semantic left rule |
-| `:Spinner` | indeterminate; eight dots chasing |
-| `:Sparkline` | `Values`, `Min`, `Max`, `Width`, `Height`, `Limit`; also `:Push(v)` |
-| `:Graph` | `Values`, `Height`, `Limit`, `Color`; also `:Push(v)` |
-| `:Bars` | `Values`, `Height`, `Limit`, `Color`; also `:Push(v)` |
-| `:Table` | `Columns` (`{ Label, Width, Align }`), `Rows` |
-| `:Avatar` | `UserId` or `Image`, `Label`, `Description` |
-| **Structure** | |
-| `:Divider` | `Label` — a horizontal hairline, optionally interrupted |
-| `:Accordion` | `Label`, `Open` — returns a **container**, so it nests |
-| `:Tree` | `Nodes` (`{ Label, Open, Children }`), `Callback` |
-| `:Breadcrumb` | `Path`, `Callback` |
-| `:Paragraph` | `Text` — prose, no control |
-| `:Gap` | `Height` |
+**Input** — `Toggle` `Checkbox` `Switch` `Slider` `Range` `Stepper` `Input`
+`TextArea` `Search` `Keybind` `Vector` `Dropdown` `Radio` `Chips` `Segmented`
+`Tags`
 
-Charts are drawn from rotated 1px frames — the same hairline the window is
-built from, just at an angle. No canvas, no assets, no library. Segments are
-pooled and **retargeted** rather than rebuilt, so pushing new data springs the
-line into its new shape instead of blinking.
+**Data** — `Status` `Stat` `Badge` `Progress` `Meter` `Ring` `Spinner`
+`Sparkline` `Graph` `Scatter` `Donut` `Bars` `Heatmap` `Rating` `Pagination`
+`List` `Table` `Tree` `Timeline`
 
-`:Accordion` returns a full container: anything that can go on a page can go
-inside one, including another accordion.
+**Play** — the ones a game wants and an application does not:
+`Leaderboard` `Slots` `Wallet` `Radial` `Versus`
 
 ```lua
-local Advanced = Page:Accordion({ Label = "Advanced", Open = false })
-Advanced:Toggle({ Label = "Nested", Default = true })
-Advanced:Accordion({ Label = "Deeper" }):Checkbox({ Label = "All the way down" })
+-- A leaderboard never loses you: your row is pinned under a rule at the bottom,
+-- however far down you actually are.
+Page:Leaderboard({ Label = "Round", Me = Player.UserId, Entries = { … } })
+
+-- An inventory grid. Empty cells are drawn, because three things and nine
+-- spaces says something that three things does not.
+Page:Slots({ Label = "Bag", Count = 12, Across = 6, Items = { … } })
+
+-- Money that rolls to its new value and says what just changed, because a
+-- number that simply becomes another number tells you nothing about the size
+-- of what happened.
+local Purse = Page:Wallet({ Label = "Kions", Default = 5250 })
+Purse:Add(1750)
+
+-- A wheel you pick from by direction rather than by position: hover highlights,
+-- letting go commits, which is what makes emote wheels work at speed.
+Page:Radial({ Label = "Emote", Items = { … }, Callback = fn })
+
+-- One bar shared by two sides, growing from the middle out.
+Page:Versus({ LeftLabel = "HOME", RightLabel = "AWAY", Left = 62, Right = 38 })
 ```
 
-`Step` on a slider also drives the readout's precision: `Step = 0.05` prints
-`0.25`, `Step = 1` prints `25`. Pass `Format = function(Value) return "..." end`
-to override entirely.
+**Colour** — `Color` `ColorPicker` `Swatches` `Gradient`
+
+**Media** — `Image` `Icon` `Gallery` `Zoom` `Viewport` `Video` `Audio`
+`Marquee`
+
+```lua
+-- A gallery shows whole pictures, and a press opens one out of its own
+-- thumbnail: it starts at exactly that cell's rectangle and springs to the
+-- middle of the screen, so it reads as that picture getting bigger.
+Section:Gallery({ Label = "Shots", Items = { … } })
+Section:Gallery({ Label = "Shots", Items = { … }, Expand = false })
+
+-- A carousel is a sliding strip, or a deck with the neighbours behind it.
+Section:Carousel({ Label = "Shots", Items = { … } })
+Section:Carousel({ Label = "Shots", Items = { … }, Variant = "Deck", Tilt = 2 })
+```
+
+```lua
+-- A magnifier that tracks the pointer. The wheel changes the factor.
+Section:Zoom({ Label = "Detail", Image = Id, Lens = 90, Factor = 2.5,
+    Min = 1, Max = 8, Crosshair = true })
+
+-- Or the picture itself, panned by dragging and scaled about the pointer,
+-- with all four inside faces lit in proportion to the travel left that way.
+Section:Zoom({ Label = "Map", Image = Id, Mode = "Pan", Factor = 1, Max = 6 })
+
+Handle:SetFactor(4)   Handle:GetFactor()   Handle:Reset()   Handle:Set(Other)
+```
+
+Both modes only answer the pointer while it is actually over them — the wheel
+used to move every zoom on screen at once, wherever the cursor was.
+
+The wheel is the page's before it is the control's. A zoom in a scrolling page
+that ate the wheel would silently stop the page scrolling whenever the pointer
+crossed it, and quietly rescale the picture while someone was only trying to
+read further down. So by default it takes the wheel **only while a control key
+is held**: `Wheel = true` claims it outright, `Wheel = false` never takes it.
+
+Two different questions are kept apart on purpose. *Whether* the pointer is
+over the image is answered by `MouseEnter`/`MouseLeave`, because Roblox already
+resolves what is on top: a window covering this one takes the hover and the
+control below hears nothing. *Where* the pointer is comes from
+`InputObject.Position`, which is measured from the same corner as
+`AbsolutePosition`. `MouseMoved` is not — it reports the whole screen including
+the top bar, so using it put the loupe a top bar's height below the cursor.
+
+```lua
+-- A split button does what its face says, and the caret changes its face.
+local Deploy = Page:SplitButton({
+    Label = "Deploy", Action = "Run",
+    Items = { { Label = "Dry run" }, { Separator = true }, { Label = "Rollback" } },
+    Callback = function(Item) … end,        -- runs the current item
+    Chose = function(Item, Index) … end,    -- and fires when one is picked
+    RunOnSelect = false,                    -- pick without running
+})
+
+Deploy:Select(2)   Deploy:Get()   Deploy:Run()   Deploy:SetAction("Ship")
+```
+
+Choosing from the menu retitles the button and runs what was chosen. An item
+can carry its own `Callback`; otherwise the control's is called and told which
+item it is running.
+
+**More** — `Empty` `Confirm` `Sortable` `Skeleton` `LoadMore` `Motd` `Kbd`
+`Well` `Split` `Group` `Columns`
+
+```lua
+-- The state a list is in before there is anything in it, which is worth saying
+-- because a blank space is indistinguishable from a failed load.
+Page:Empty({ Text = "No rounds yet", Detail = "Play one", Action = "Find a game" })
+
+-- A button that will not do it until you say so twice, and disarms itself if
+-- you walk away. The alternative to a modal for anything small and destructive.
+Page:Confirm({ Label = "Delete save", Action = "Delete", Window = 3, Callback = fn })
+
+-- A list you drag into a different order. The row you hold follows the pointer
+-- and the rest spring aside, so the order you see is the order you will get.
+Page:Sortable({ Label = "Loadout", Items = { … }, Callback = fn })
+```
+
+**Content** — `Button` `Rule` `Divider` `Gap` `Paragraph` `Quote` `Code`
+`Alert` `Callout` `Accordion` `Breadcrumb` `Steps` `Avatar` `Link` `Toolbar`
+`Header` `Group` `Columns`
+
+### Variants
+
+Most controls take a `Variant`:
+
+```lua
+Section:Toggle({ Label = "A",  Variant = "Switch" })   -- Switch, Check, Pill
+Section:Button({ Label = "B",  Variant = "Rule" })     -- Pill, Solid, Outline,
+                                                       -- Ghost, Text, Rule
+Section:Alert({ Label = "C",   Variant = "Outline" })  -- Accent, Solid,
+                                                       -- Outline, Subtle
+Window:Tabs({ Variant = "Underline" })                 -- Pill, Underline, Rule
+Section:Slider({ Label = "D",  Variant = "Ticks" })    -- Bar, Ticks
+```
+
+Rows and blocks take `Variant` too: `Filled`, `Flat`, `Outline`, `Solid`,
+`Rule`.
+
+### Rule buttons
+
+The bracket style — a vertical rule either side of the label, filling in on
+hover — comes in three shapes:
+
+```lua
+Section:Button({ Label = "Reset", Action = "Run", Variant = "Rule" })
+Section:Rule({ Action = "Continue", Callback = Continue })   -- full width
+Section:Divider({ Label = "or start over", Callback = Restart })
+```
+
+### Options every control takes
+
+| Option | Does |
+| --- | --- |
+| `Label` `Description` | the text on the left |
+| `Callback` | fired on change |
+| `Default` | the starting value |
+| `Variant` | the look |
+| `Color` | the accent |
+| `Radius` | corner radius, overriding the theme |
+| `Visible` `Disabled` | starting state |
+| `Tooltip` | a hint on hover |
+| `Flat` | no fill behind the row |
+| `Icon` | a small picture on the left |
+| `LayoutOrder` | position in the flow, if you do not want declaration order |
+| `Height` `Width` | size, where it means something |
+
+### Embeds
+
+Every embed decides its own plate, which is what the dark background behind an
+image is:
+
+```lua
+Section:Image({ Image = Id })                              -- the default well
+Section:Image({ Image = Id, Background = false })          -- no plate at all
+Section:Image({ Image = Id, Background = Colour, BackgroundTransparency = 0.2 })
+
+Handle:SetBackground(false)                                -- and after the fact
+```
+
+`Paragraph`, `Image`, `Icon`, `Gallery`, `Viewport`, `Video` and `Avatar` all
+take the same three options.
+
+### Links go anywhere
+
+A link is not only a URL:
+
+```lua
+Page:Link({ Label = "Go to Audio",  Target = "Audio" })      -- a page
+Page:Link({ Label = "Open detail",  Target = SomeWindow })   -- a window
+Page:Link({ Label = "Find it",      Target = SomeControl })  -- scroll + flash
+Page:Link({ Label = "Do it",        Target = function() end })
+Page:Link({ Label = "Docs",         Url = "https://..." })
+```
+
+`Handle:Follow()` returns what it did: `"page"`, `"window"`, `"element"`,
+`"action"`, `"url"`, `"blocked"` or `"missing"`.
+
+---
+
+## Layers
+
+```lua
+Kuik.Prompt({
+    Title = "Leave the match?",
+    Text  = "Your progress this round will not be saved.",
+    Buttons = {
+        { Label = "Stay" },
+        { Label = "Leave", Primary = true, Value = "leave" },
+    },
+    Callback = function(Choice) end,
+})
+```
+
+A prompt is genuinely modal: nothing behind it scrolls, no keybind fires, and
+`Kuik.Blocked()` is true for as long as it is up.
+
+```lua
+local Menu = Kuik.Menu({
+    Items = {
+        { Label = "Inspect", Shortcut = "I" },
+        { Separator = true },
+        { Label = "Delete", Color = Kuik.Theme.Danger },
+    },
+})
+
+Menu:ShowAtMouse()
+```
+
+```lua
+local Deck = Kuik.Cards({ Gap = 90 })
+
+Deck:Add(Kuik.Window({ Title = "One" }))
+Deck:Add(Kuik.Window({ Title = "Two" }))
+
+Deck:Next()        -- or the left and right arrows, or Q and E
+```
+
+A deck opens the cards you add to it, keeps them in a carousel, and destroys
+them with itself unless you pass `Deck:Destroy(true)` — `Deck:Destroy(false, true)`
+animates them out instead. Every card but the one in focus wears a grey wash,
+and that wash is the same object that stops a shrunk card being clicked, so a
+card is exactly as interactive as it looks.
+
+---
 
 ## HUD
 
-The second half of the language, and the half that makes it recognisable.
-None of it has a background.
+None of these live in a window:
+
+`Toast` `Notify` `Hints` `Log` `Feed` `Arrival` `Console` `Watermark` `Bar`
+`Timer` `Ammo` `Crosshair` `Killfeed` `Objective` `Vignette` `Compass` `Fab`
+`Viewfinder`
 
 ```lua
--- | bracketed announcement |   top centre, no fill
-local Toast = Kuik.Toast("Waiting for players.", { Duration = 0 })
-Toast:Set("3 players.")   -- Duration 0 means it stays until :Destroy()
+-- Hints are not only keybinds. A hint is a badge and a line, and the badge can
+-- be a key, a chord, a mouse button, an icon, or nothing at all.
+local Hints = Kuik.Hints({ Side = "Right", Align = "Center" })
 
--- the one component with a fill: a card that drops from the top edge
-Kuik.Notify({ Title = "You've joined <b>loll</b>", Image = "rbxassetid://0" })
+Hints:Add("E", "interact")
+Hints:Add({ Keys = { "Ctrl", "S" }, Action = "save" })
+Hints:Add({ Mouse = "Left", Action = "fire" })
+Hints:Add({ Icon = Id, Action = "equip" })
+Hints:Add({ Action = "the door is locked" })          -- no badge, just a line
 
--- right-edge keycap hints
-local Hints = Kuik.Hints()
-Hints:Add("SHIFT", "Sprint")
-Hints:Add("TAB", "Open Settings")
+local Pick = Hints:Add({ Hold = "F", Action = "pick up" })
+Pick:SetProgress(0.4)                                  -- fills as it is held
 
--- bottom-left bracketed feed; RichText is on, so colour role names inline
-local Log = Kuik.Log({ Limit = 8 })
-Log:Push('Your role is <font color="#5c9cff">CONSERVATOR</font>.')
-
--- top-right monospace severity feed
-local Console = Kuik.Console()
-Console:Push("WARN", "helsinki VOTE-1001 reason=Removed by server votekick.")
--- INFO · SUCCESS · WARN · ERROR · DEBUG
-
--- the monospace status line welded to the bottom edge
-local Watermark = Kuik.Watermark({
-    Side   = "Left",
-    Tag    = { Text = "PROTOTYPING", Color = Kuik.Theme.Danger },
-    Fields = { "HL_v1", "HL-260829-…", "Washington, United States" },
-})
-Watermark:SetSide("Right")
+Hints:Set({ … })   -- replace the whole rail, which is what a context change wants
 ```
+
+```lua
+-- Centred notices that stack upward and expire. The newest wears a hairline
+-- that runs out from behind it and fades at both ends.
+local Feed = Kuik.Feed({ Limit = 5, Life = 4 })
+
+Feed:Push("You've earned: 7,000 Kions")
+Feed:Push("After Tax: 5,250 Kions", { Color = Theme.Good })
+
+-- The loading screen, laid out where the reference lays it out: a bracketed
+-- status chip at 9% down, the title dead centre, fine print along the bottom.
+local Arrival = Kuik.Arrival({
+    Title    = 'You\'re arriving at "West Haven Offices"',
+    Subtitle = "Placing you in the level",
+    Status   = "Loaded West Haven Offices",
+    Footer   = { "a line", "and another" },
+})
+
+Arrival:SetProgress(0.4)   Arrival:SetStatus("Placing you")   Arrival:Done(fn)
+```
+
+An arrival screen does not fade its chip up — a white bar over it **closes to
+nothing**, uncovering it. That is the plate's gesture played backwards, and it
+is what the reference uses to cover a cut: one frame to black, then the bar
+shuts. `Kuik.Close` is that on its own, for anything else you want uncovered
+rather than faded in.
+
+```lua
+local Health = Kuik.Bar({ Label = "HEALTH", Max = 100, Warn = 0.5, Danger = 0.25 })
+Health:Set(62)
+
+Kuik.Toast("picked up a key", { Duration = 2 })
+Kuik.Notify({ Title = "Saved", Text = "Everything is up to date." })
+```
+
+---
+
+## Themes
+
+A theme is a sparse overlay on the token table. Applying one repaints
+everything already on screen:
+
+```lua
+Kuik.SetTheme("Terminal")
+
+Kuik.RegisterTheme("Studio", {
+    Accent = Color3.fromRGB(120, 200, 255),
+    Scrim  = Color3.fromRGB(8, 10, 16),
+})
+
+Kuik.SetTheme("Studio")
+```
+
+Built in: `Remorse` (the default), `Redliner`, `Ember`, `Terminal`,
+`Midnight`, `Paper`.
+
+Tokens are mutated in place, so anything holding a reference to `Kuik.Theme`
+keeps seeing the current values. Objects painted with a token are tracked in a
+weak registry, which is what lets a live UI change under you.
+
+Squaring the whole library off, or rounding it, is three numbers:
+
+```lua
+Kuik.Metrics.RowRadius  = 0
+Kuik.Metrics.CardRadius = 0
+Kuik.Metrics.PillRadius = 0
+```
+
+---
 
 ## Motion
 
-Motion is ported from Lume — the same role names, the same durations, the same
-easings, and the same spring solver — so anything built with both moves
-identically.
+**Everything moves on a spring.** A spring is stepped on `Heartbeat` by an
+analytic damped harmonic oscillator, and it retargets mid flight instead of
+restarting — so a value that changes twice in three frames bends toward the new
+goal rather than stuttering. That is the whole reason these are not tweens.
 
-There are two paths, and the split is Lume's: **tweens** for anything with a
-fixed duration (opacity, colour, text swaps), **springs** for anything whose
-target can change mid-flight (positions, sizes, drags). Retargeting a spring
-keeps its current position *and velocity*, so the motion bends toward the new
-destination instead of restarting from a standstill — which is why dragging a
-slider trails the cursor instead of teleporting to it.
+A role with a `Duration` still resolves to a tween if you ask for one; the
+library itself only does that for `instant`.
 
 ```lua
-Kuik.Theme.Motion = {
-    instant = { Duration = 0 },
-    enter   = { Duration = 0.46, Easing = "outQuint" },   -- window open
-    exit    = { Duration = 0.38, Easing = "outQuad"  },   -- window close
-    expand  = { Duration = 0.34, Easing = "outQuint" },
-    hover   = { Duration = 0.12, Easing = "outQuad"  },
-    press   = { Duration = 0.07, Easing = "outQuad"  },
-    fade    = { Duration = 0.34, Easing = "outQuad"  },
-    hint    = { Duration = 0.22, Easing = "outQuad"  },
-    item    = { Duration = 0.30, Easing = "outQuad"  },
-    list    = { Duration = 0.28, Easing = "outQuad"  },
-    drop    = { Duration = 0.46, Easing = "outBack"  },
-
-    layout  = { Stiffness = 190, Damping = 24 },
-    morph   = { Stiffness = 210, Damping = 26 },   -- the tab pill sliding
-    drag    = { Stiffness = 620, Damping = 42 },   -- follows a pointer
-    toss    = { Stiffness = 340, Damping = 22 },   -- settles with a bounce
-    reveal  = { Stiffness = 150, Damping = 20 },   -- accordions, window rules
-    snap    = { Stiffness = 600, Damping = 40 },
-}
+Kuik.Tween(Object, { Position = UDim2.new(0, 40, 0, 0) }, "layout")
+Kuik.Tween(Object, { Size = UDim2.new(1, 0, 0, 40) }, { Stiffness = 190, Damping = 24 })
+Kuik.Tween(Object, { BackgroundTransparency = 0 }, { Duration = 0.3, Easing = "outQuint" })
 ```
 
-`Damping` is the coefficient, not the ratio — critical for a given stiffness is
-`2 * sqrt(Stiffness)`. Every shipped spring sits a little under critical, so
-they all overshoot slightly and come back; that small bounce is what reads as
-weight. `toss` is the most obvious, at a ratio of 0.60.
+Named roles: `instant` (the one tween), then `enter` `exit` `expand` `hint`
+`item` `list` `drop` `hover` `press` `fade` `tint` `layout` `morph` `drag`
+`toss` `reveal` `snap` `pop` `shrink` `scroll`, and the white layer's own
+`plate` `open` `burn` `smear` `sweep`.
 
-The solver is stepped analytically, so it lands identically at 30fps and
-240fps, and a long frame is capped at 1/20s so a hitch reads as motion rather
-than a teleport. One `Heartbeat` connection drives every live spring and
-disconnects itself when nothing is moving.
+Damping is read against the frequency: at `2 * sqrt(Stiffness)` a spring is
+critically damped and never overshoots. Roles that carry a transparency or a
+colour — `hover`, `press`, `fade`, `tint`, `scroll` — are kept at or above
+critical, because an overshoot there clips at the end of the range and reads as
+a flicker. Roles that carry a position or a size are allowed to overshoot a
+little, because that is what makes them feel alive. There is a test for it.
 
-`Kuik.Tween(Object, Properties, Role)` takes a role name or a literal spec
-table, and dispatches to the right path automatically:
+### The white layer
+
+A white shape stands in for something for a moment, and then hands over to it.
+Every timing in here was measured off recordings frame by frame rather than
+chosen — the frame tables, and how closely this reproduces them, are in
+[MOTION.md](MOTION.md).
+
+**Panels do this by default.** A window with chrome — the `Rules` and `Card`
+variants — arrives as a plate; a `Bare` or `Panel` variant does not, because a
+health bar that flashes white every time it appears would be ridiculous. Turn it
+off anywhere with `Reveal = false`, or library-wide with
+`Kuik.Metrics.Reveal = false`.
 
 ```lua
-Kuik.Tween(Frame, { Position = Target }, "toss")                     -- spring
-Kuik.Tween(Label, { TextTransparency = 0 }, "fade")                  -- tween
-Kuik.Tween(Frame, { Size = Big }, { Stiffness = 400, Damping = 30 }) -- literal
+-- The plate grows wide, opens down, and burns off while the window resolves
+-- underneath it. From makes it drift on from whatever opened it.
+Kuik.Window({ Title = "Settings", Reveal = { From = Button.Frame }, Open = true })
+
+-- Any control can do it too.
+Page:Toggle({ Label = "Arrived", Reveal = true })
+
+-- A menu, given the rectangle it is about to occupy.
+Kuik.Menu({ Items = …, Reveal = true })
 ```
 
-## Theme
+Three details carry the plate, and all three came out of the frame table rather
+than out of taste: it never starts from a dot (it appears already 56% wide and
+31% open), it is only about 60% white when it appears, and the burn starts as
+the height starts — so the panel is showing through before the plate has
+finished moving. That last one is what makes it read as the plate *becoming* the
+panel rather than sitting in front of it.
 
-`Kuik.Theme` and `Kuik.Metrics` are live tables — assign to them before
-constructing anything and the whole library follows. Motion durations and
-spring constants are read at animation time, so those take effect immediately;
-colour, font and size are read at construction, so they need a rebuild.
+The rest of the layer:
 
 ```lua
-Kuik.Theme.Font = Font.fromEnum(Enum.Font.Gotham)  -- default is Montserrat
-Kuik.Theme.RuleTransparency = 0.3                  -- brighter rules
-Kuik.Theme.Motion.toss.Damping = 37                -- kill the bounce
-Kuik.Metrics.WindowWidth = 520
-Kuik.Metrics.PillRadius = 0                        -- square every pill
+Kuik.Follow(Object)          -- a white ghost that trails it while it moves
+Kuik.Ghost(Object)           -- one afterimage stamped where it was
+Kuik.Trail(Object)           -- a ghost stamped every frame while it moves
+Kuik.Wipe(Object)            -- a bar sweeps across and leaves it uncovered
+Kuik.Flash({ Hold = 0.17, Covered = fn })   -- full white, held, then decays
+Kuik.Plate(Object, Options)  -- the reveal, by hand
 ```
 
-Dim text is expressed as a **transparency of white**, not a grey, because the
-library is designed to sit over arbitrary game footage. `TextPrimary`,
-`TextSecondary`, `TextTertiary` and `TextDisabled` are the four steps.
+`Follow` is what a tab bar's highlight wears: it chases on a soft exponential
+rather than a spring, because a spring would overshoot and arrive *ahead* of the
+thing it is trailing, which is the one thing an afterimage must never do. It is
+invisible at rest, stretches to span the gap it has not covered yet, and lets go
+of the frame loop as soon as it catches up — so a tab bar nobody is touching
+costs nothing. Turn it off with `Ghost = false` on the tab bar.
 
-`Theme.Scrim` is the backdrop colour, and it **darkens** — a light wash erases
-white rules and white type over a bright scene.
+A flash **holds** before it decays. One frame to full, about five held, then
+seven of decay: without the hold it is a blink, and a blink cannot hide a cut
+behind it. `Covered` runs at the top of the hold, while the screen is solid.
 
-The semantic colours — `Danger`, `Warn`, `Info`, `Good`, `Neutral` — are the
-only chromatic values in the library, and nothing uses them decoratively.
-
-## Scrolling
-
-Roblox scrolls a `ScrollingFrame` in hard jumps. On desktop the library takes
-the wheel over and springs `CanvasPosition` instead, which is the difference
-between a panel that lurches and one that glides. Touch is left alone — its
-drag is already smooth and momentum-driven, and disabling `ScrollingEnabled`
-would break it.
-
-The window body, the tab bar, `:List` and an overflowing `:Dropdown` all scroll
-this way. While the pointer is over the tab bar the wheel belongs to the tab
-bar: without that, running the tabs to their end hands the wheel to the page
-underneath and the whole panel lurches.
-
-`Window.Scroll` is the body's scroller — `:To(Vector2)` to move it, and
-`:SetEnabled(false)` to hand the wheel to something else.
-
-## Escape hatches
+### Arriving, leaving, scaling, repainting
 
 ```lua
-Kuik.Screen()   -- the shared ScreenGui, if you want to add your own things
-Kuik.Reset()    -- tear down every Kuik element and its blur
-Kuik.New        -- the Instance constructor helper
-Kuik.Tween      -- the shared tween helper, on the library's one curve
+Motion.Pop(Object)                     -- grow into place from slightly small
+Motion.Scale(Object, 1.2)              -- spring a UIScale, layout untouched
+Motion.FadeIn(Object, 0.05)            -- the object and everything inside it
+Motion.Fade(Object, 1)                 -- and back out again
+Motion.Out(Object, function() … end)   -- shrink and fade, then call back
+Motion.Paint(Object, { BackgroundColor3 = Colour }, Animate)
+Motion.Halt(Object, "Position")        -- let go of it where it stands
 ```
 
-## Tests
+`Motion.Paint` is the rule for every direct set in the library: **a direct
+assignment must cancel any spring already running on that property**, or the
+spring lands on top of it a frame later and the set looks ignored.
+
+### Asking for it explicitly
+
+Creation and destruction are still immediate by default, because a control that
+lingers after the code that removed it has moved on is a bug every other time.
+Say so and they animate:
+
+```lua
+Page:Toggle({ Label = "Arrives", Enter = true })   -- or Enter = "drop"
+Handle:Destroy(true)                              -- shrink and fade, then go
+Window:Destroy(true)                              -- the same, for a window
+
+Handle:Set("value", Theme.Good, true)             -- spring the colour across
+Handle:SetColor(Theme.Danger, true)
+Window:SetFill(Colour, 0.1, true)
+```
+
+Rows arriving in a page are staggered for you: selecting a page fades the first
+nine rows in, one behind the next, contents and all.
+
+---
+
+## Writing your own control
+
+The registry is open. Anything you add becomes a method on every container
+built afterwards:
+
+```lua
+Kuik.Register("Sticker", function(Container, Options, Owner)
+    local Built = Kuik.Row(Container, Options)
+    Built:Reserve(40)
+
+    local Handle = {}
+
+    return Kuik.Parts.Common(Handle, Built.Frame, Options, {
+        Label = Built.Label,
+        Description = Built.Description,
+    })
+end)
+
+Page:Sticker({ Label = "Mine" })
+```
+
+`Kuik.Row` and `Kuik.Block` are the two shells everything else is built from;
+`Kuik.Parts.Common` mixes in the shared handle behaviour.
+
+---
+
+## Layout
 
 ```
-lune run tests/build    # builds every component headlessly, 134 checks
-lune run tests/parse    # syntax-checks the demo scripts
+src/
+    init.luau      the public surface
+    Theme.luau     tokens, presets, the repaint registry
+    Motion.luau    easings, the spring solver, Tween
+    Util.luau      New, and the small helpers
+    Screen.luau    the ScreenGui, and the modal count
+    Scroll.luau    smooth wheel scrolling and the edge gleams
+    Shared.luau    the seam that keeps the module graph acyclic
+    Parts.luau     Row, Block, and the shared handle behaviour
+    Layout.luau    Attach, sections, tab bars
+    Window.luau    windows and panels
+    Hud.luau       the screen furniture
+    Layers.luau    menus, prompts, card decks
+    Controls/      the registry, in five files
+
+tests/
+    build.luau     279 checks against the built library
+    parse.luau     a syntax check over demo/
+    shim.luau      enough of Roblox to run headlessly under lune
+
+tools/
+    build.py       builds dist/
 ```
 
-`tests/shim.luau` fakes enough of the Roblox environment to construct the whole
-library under lune. It is **not** a renderer — `AbsoluteSize` and
-`AbsolutePosition` are always zero — so it catches syntax errors, bad property
-names, nil indexing and broken control flow, but never layout or appearance.
-Anything visual still has to be checked in Studio.
+Tests run under [lune](https://lune-rs.com):
 
-## Known limits
+```
+python3 tools/build.py && lune run tests/build
+```
 
-- **Tabs scroll, they do not wrap.** Past about five tabs the bar overflows and
-  becomes horizontally scrollable — the wheel is mapped onto X, and selecting a
-  tab from code scrolls it into view. The reference never has more than four.
-- **The tab bar scrolls with the body.** Sections, tabs and pages are all rows
-  in the same scrolling body, which is what the reference does. Scroll far
-  enough down and the tabs leave the screen.
-- **The backdrop blur is global.** It is a `BlurEffect` in `Lighting`, owned by
-  the window and destroyed with it, but while open it blurs the whole scene.
-  Pass `Blur = 0` if the game already manages `Lighting`.
-- **Parallax reads `workspace.CurrentCamera` every frame.** Cheap, but it is a
-  `RenderStepped` connection per window.
-- **Montserrat is assumed.** It is a built-in Roblox font family; if you would
-  rather not depend on it, set `Theme.Font` to a `Enum.Font` variant.
+The shim has no layout engine — `AbsoluteSize` is always zero and nothing is
+ever measured — so the suite proves construction and logic, never appearance.
+Anything about how it looks has to be checked in Studio.
+
+---
+
+MIT © 2026 kr3ative

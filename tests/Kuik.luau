@@ -1,1 +1,1 @@
-../init.luau
+../dist/Kuik.luau

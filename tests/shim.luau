@@ -8,12 +8,26 @@
 
 local Shim = {}
 
+--- Keys a test wants to pretend are held down. Declared up here because the
+--- input service closure below reads it.
+Shim.Held = {}
+
+--- The clock. Off by default so task.delay stays eager for the tests that were
+--- written against that; on, delays queue here and Shim.Advance runs them.
+Shim.Clocked = false
+Shim.Now = 0
+Shim.Timers = {}
+
 --------------------------------------------------------------------------
 -- Datatypes
 --------------------------------------------------------------------------
 
 local Color3Lib = {}
 Color3Lib.__index = Color3Lib
+
+Color3Lib.__eq = function(A, B)
+	return A.R == B.R and A.G == B.G and A.B == B.B
+end
 
 function Color3Lib.new(R, G, B)
 	return setmetatable({ R = R or 0, G = G or 0, B = B or 0 }, Color3Lib)
@@ -134,16 +148,54 @@ end
 
 Vector2Lib.zero = Vector2Lib.new(0, 0)
 
+local Vector3Lib = {}
+Vector3Lib.__index = Vector3Lib
+
+function Vector3Lib.new(X, Y, Z)
+	X, Y, Z = X or 0, Y or 0, Z or 0
+
+	return setmetatable({
+		X = X, Y = Y, Z = Z,
+		Magnitude = math.sqrt(X * X + Y * Y + Z * Z),
+	}, Vector3Lib)
+end
+
+Vector3Lib.zero = Vector3Lib.new(0, 0, 0)
+
+local CFrameLib = {}
+CFrameLib.__index = CFrameLib
+
+function CFrameLib.new(X, Y, Z)
+	return setmetatable({
+		Position = type(X) == "table" and X or Vector3Lib.new(X, Y, Z),
+		LookVector = Vector3Lib.new(0, 0, -1),
+	}, CFrameLib)
+end
+
+function CFrameLib.fromEulerAnglesYXZ()
+	return CFrameLib.new()
+end
+
+function CFrameLib.lookAt(From)
+	return CFrameLib.new(From)
+end
+
+CFrameLib.__mul = function()
+	return CFrameLib.new()
+end
+
 local UDimLib = {}
+UDimLib.__index = UDimLib
 
 function UDimLib.new(Scale, Offset)
-	return { Scale = Scale or 0, Offset = Offset or 0 }
+	return setmetatable({ Scale = Scale or 0, Offset = Offset or 0 }, UDimLib)
 end
 
 local UDim2Lib = {}
+UDim2Lib.__index = UDim2Lib
 
 function UDim2Lib.new(XS, XO, YS, YO)
-	return { X = UDimLib.new(XS, XO), Y = UDimLib.new(YS, YO) }
+	return setmetatable({ X = UDimLib.new(XS, XO), Y = UDimLib.new(YS, YO) }, UDim2Lib)
 end
 
 function UDim2Lib.fromOffset(X, Y)
@@ -197,10 +249,22 @@ local function Signal()
 	function Self:Connect(Handler)
 		table.insert(Handlers, Handler)
 
-		return {
-			Disconnect = function() end,
-			Connected = true,
-		}
+		local Link = { Connected = true }
+
+		--- A real disconnect, not a stub. Leaving it a no-op meant a handler
+		--- that let go of its own connection kept being called afterwards, and
+		--- anything that leaked a connection looked fine here.
+		function Link.Disconnect()
+			local At = table.find(Handlers, Handler)
+
+			if At then
+				table.remove(Handlers, At)
+			end
+
+			Link.Connected = false
+		end
+
+		return Link
 	end
 
 	function Self:Once(Handler)
@@ -208,7 +272,9 @@ local function Signal()
 	end
 
 	function Self:Fire(...)
-		for _, Handler in Handlers do
+		--- Over a copy: a handler is allowed to disconnect itself, and removing
+		--- from the list being walked would skip the one after it.
+		for _, Handler in table.clone(Handlers) do
 			Handler(...)
 		end
 	end
@@ -221,9 +287,10 @@ end
 Shim.Signal = Signal
 
 local SignalNames = {
-	MouseEnter = true, MouseLeave = true, Activated = true,
+	MouseEnter = true, MouseLeave = true, MouseMoved = true, Activated = true,
 	InputBegan = true, InputChanged = true, InputEnded = true,
 	FocusLost = true, Focused = true, Changed = true, MouseButton1Click = true,
+	Ended = true, Loaded = true, DidLoop = true, Paused = true, Played = true,
 	RenderStepped = true, Heartbeat = true,
 }
 
@@ -233,7 +300,16 @@ local SignalNames = {
 
 local InstanceMeta = {}
 
+--- A copy, the way Roblox returns one. Handing back the live list let a loop
+--- that destroys as it goes skip every child that shuffled down — which is a
+--- real bug shape the library has hit before, and one the shim was hiding
+--- rather than reproducing.
 local function GetChildren(Self)
+	return table.clone(rawget(Self, "Children"))
+end
+
+--- The live list, for the shim's own bookkeeping.
+local function LiveChildren(Self)
 	return rawget(Self, "Children")
 end
 
@@ -262,20 +338,34 @@ InstanceMeta.__newindex = function(Self, Key, Value)
 		local Old = Properties.Parent
 
 		if Old then
-			for Index, Child in GetChildren(Old) do
+			for Index, Child in LiveChildren(Old) do
 				if Child == Self then
-					table.remove(GetChildren(Old), Index)
+					table.remove(LiveChildren(Old), Index)
 					break
 				end
 			end
 		end
 
 		if Value then
-			table.insert(GetChildren(Value), Self)
+			table.insert(LiveChildren(Value), Self)
 		end
 	end
 
+	local Was = Properties[Key]
+
 	Properties[Key] = Value
+
+	--- Anyone watching this property hears about it, the way Roblox does it.
+	--- Compared first so a write of the same value is not an event: a driver
+	--- that reacts by writing back would otherwise never stop.
+	if Was ~= Value then
+		local Watchers = rawget(Self, "Watchers")
+		local Signal_ = Watchers and Watchers[Key]
+
+		if Signal_ then
+			Signal_:Fire()
+		end
+	end
 end
 
 InstanceMeta.__tostring = function(Self)
@@ -303,6 +393,24 @@ function InstanceLib.new(ClassName)
 		AbsoluteCanvasSize = Vector2Lib.new(0, 0),
 		CanvasPosition     = Vector2Lib.new(0, 0),
 		GroupTransparency  = 0,
+
+		--- Every transparency Roblox defaults to zero, defaulted to zero here
+		--- too. Leaving them nil made "is this visible" checks compare nil
+		--- against a number, which throws rather than failing — so a real bug
+		--- and a missing default looked the same.
+		BackgroundTransparency = 1,
+		TextTransparency       = 0,
+		TextStrokeTransparency = 1,
+		ImageTransparency      = 0,
+		Transparency           = 0,
+
+		TimeLength         = 0,
+		TimePosition       = 0,
+		Rotation           = 0,
+		ZIndex             = 1,
+		LayoutOrder        = 0,
+		IsLoaded           = true,
+		Scale              = 1,
 	})
 
 	rawset(Self, "Methods", {
@@ -311,9 +419,9 @@ function InstanceLib.new(ClassName)
 			local Parent = Properties.Parent
 
 			if Parent then
-				for Index, Child in GetChildren(Parent) do
+				for Index, Child in LiveChildren(Parent) do
 					if Child == Self then
-						table.remove(GetChildren(Parent), Index)
+						table.remove(LiveChildren(Parent), Index)
 						break
 					end
 				end
@@ -366,6 +474,9 @@ function InstanceLib.new(ClassName)
 				return string.find(Class, "Frame") ~= nil
 					or string.find(Class, "Label") ~= nil
 					or string.find(Class, "Button") ~= nil
+					or Class == "CanvasGroup"
+					or Class == "TextBox"
+					or Class == "ScrollingFrame"
 			end
 
 			return false
@@ -381,9 +492,9 @@ function InstanceLib.new(ClassName)
 			return nil
 		end,
 
-		FindFirstChild = function(_, Query)
+		FindFirstChildWhichIsA = function(_, Query)
 			for _, Child in GetChildren(Self) do
-				if rawget(Child, "Properties").Name == Query then
+				if Child:IsA(Query) then
 					return Child
 				end
 			end
@@ -391,8 +502,57 @@ function InstanceLib.new(ClassName)
 			return nil
 		end,
 
-		GetPropertyChangedSignal = function()
-			return Signal()
+		FindFirstChild = function(_, Query, Deep)
+			for _, Child in GetChildren(Self) do
+				if rawget(Child, "Properties").Name == Query then
+					return Child
+				end
+			end
+
+			if Deep then
+				for _, Child in GetChildren(Self) do
+					local Found = Child:FindFirstChild(Query, true)
+
+					if Found then
+						return Found
+					end
+				end
+			end
+
+			return nil
+		end,
+
+		--- A real one, cached per property and fired on assignment.
+		---
+		--- Returning a fresh dead signal each call meant nothing that watches
+		--- geometry could be tested at all — and a great deal of this library
+		--- watches geometry: rules driven off a sibling's height, edge lights
+		--- tracking a scroller, a reveal waiting for its first layout.
+		GetPropertyChangedSignal = function(_, Property)
+			local Watchers = rawget(Self, "Watchers")
+
+			if not Watchers then
+				Watchers = {}
+				rawset(Self, "Watchers", Watchers)
+			end
+
+			if not Watchers[Property] then
+				Watchers[Property] = Signal()
+			end
+
+			return Watchers[Property]
+		end,
+
+		--- Sound and VideoFrame transport, enough to build and drive them.
+		Play = function() end,
+		Pause = function() end,
+		Resume = function() end,
+		Stop = function() end,
+		Clone = function()
+			return InstanceLib.new(rawget(Self, "Properties").ClassName)
+		end,
+		GetBoundingBox = function()
+			return CFrameLib.new(), Vector3Lib.new(1, 1, 1)
 		end,
 	})
 
@@ -430,6 +590,17 @@ Services.UserInputService = {
 	GetMouseLocation = function()
 		return Vector2Lib.new(0, 0)
 	end,
+
+	--- Held keys are a test fixture: set Shim.Held[Enum.KeyCode.X] = true.
+	IsKeyDown = function(_, Key)
+		return Shim.Held[Key] == true
+	end,
+}
+
+Services.GuiService = {
+	GetGuiInset = function()
+		return Vector2Lib.new(0, 36), Vector2Lib.new(0, 0)
+	end,
 }
 
 Services.RunService = {
@@ -450,10 +621,68 @@ Services.Players = {
 Shim.Services = Services
 Shim.PlayerGui = PlayerGui
 
+--- Drives the library's Heartbeat spring loop by hand, since a headless test
+--- has no frames. Enough steps and every spring in flight settles on its goal,
+--- which is what makes the motion layer testable at all.
+function Shim.Step(Count, Delta)
+	for _ = 1, Count or 240 do
+		Services.RunService.Heartbeat:Fire(Delta or 1 / 30)
+	end
+end
+
+--- Runs time forward: steps the spring driver a frame at a time and fires every
+--- queued callback as its moment arrives, in the order the moments come. This is
+--- what makes a choreography testable — that the width finishes before the
+--- height starts, that the plate is still there while the panel is still hidden.
+function Shim.Advance(Seconds, Rate)
+	local Step = 1 / (Rate or 24)
+	local Until = Shim.Now + Seconds
+
+	while Shim.Now < Until - 1e-9 do
+		Shim.Now += Step
+
+		--- Due first, then the frame: a callback that starts a spring should
+		--- have that spring stepped on the same frame it started.
+		local Due = {}
+
+		for Index = #Shim.Timers, 1, -1 do
+			local Timer = Shim.Timers[Index]
+
+			if Timer.At <= Shim.Now then
+				table.insert(Due, Timer)
+				table.remove(Shim.Timers, Index)
+			end
+		end
+
+		table.sort(Due, function(A, B) return A.At < B.At end)
+
+		for _, Timer in Due do
+			local Thread = coroutine.create(Timer.Callback)
+			local Ok, Err = coroutine.resume(Thread, table.unpack(Timer.Arguments, 1, Timer.Arguments.n))
+
+			if not Ok then
+				error(Err, 0)
+			end
+		end
+
+		Services.RunService.Heartbeat:Fire(Step)
+	end
+end
+
+--- Back to nothing pending, for a suite that runs several scenarios.
+function Shim.Reset()
+	Shim.Now = 0
+	table.clear(Shim.Timers)
+end
+
 --------------------------------------------------------------------------
 -- Install
 --------------------------------------------------------------------------
 
+--- Note: typeof cannot be shimmed. Luau treats it as a builtin and inlines
+--- the call, so assigning the global has no effect and every shim value still
+--- answers "table". Anything in the library that has to work headlessly must
+--- therefore not depend on typeof to recognise a value.
 function Shim.Install()
 	Color3    = Color3Lib
 	Vector2   = Vector2Lib
@@ -467,6 +696,8 @@ function Shim.Install()
 	ColorSequenceKeypoint = ColorSequenceKeypointLib
 	NumberSequence = NumberSequenceLib
 	NumberSequenceKeypoint = NumberSequenceKeypointLib
+	Vector3   = Vector3Lib
+	CFrame    = CFrameLib
 
 	game = {
 		GetService = function(_, Name)
@@ -479,6 +710,8 @@ function Shim.Install()
 	}
 
 	local Camera = InstanceLib.new("Camera")
+	Camera.CFrame = CFrameLib.new()
+	Camera.ViewportSize = Vector2Lib.new(1280, 720)
 
 	workspace = {
 		CurrentCamera = Camera,
@@ -513,14 +746,31 @@ function Shim.Install()
 			return Thread
 		end,
 
-		delay = function(_, Callback, ...)
-			if Callback then
-				local Thread = coroutine.create(Callback)
-				local Ok, Err = coroutine.resume(Thread, ...)
+		--- Eager by default, which is what most of the suite expects: a delayed
+		--- callback happens now and the assertion after it can see the result.
+		--- Turn Shim.Clocked on and delays are queued against a clock instead,
+		--- which is the only way to test an animation whose whole point is that
+		--- one thing happens before another.
+		delay = function(Seconds, Callback, ...)
+			if not Callback then
+				return
+			end
 
-				if not Ok then
-					error(Err, 0)
-				end
+			if Shim.Clocked then
+				table.insert(Shim.Timers, {
+					At       = Shim.Now + math.max(0, Seconds or 0),
+					Callback = Callback,
+					Arguments = table.pack(...),
+				})
+
+				return
+			end
+
+			local Thread = coroutine.create(Callback)
+			local Ok, Err = coroutine.resume(Thread, ...)
+
+			if not Ok then
+				error(Err, 0)
 			end
 		end,
 
